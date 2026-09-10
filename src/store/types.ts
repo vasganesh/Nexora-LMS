@@ -246,3 +246,25 @@ export interface LMSStore {
     subjectColor: string,
   ) => void;
 }
+
+export interface StudentRegistrationRequest {
+  id: string;
+  name: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  age: string;
+  location: string;
+  boardId: string;
+  boardTitle: string;
+  classId: string;
+  classTitle: string;
+  optedSubjectId?: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'REMOVED';
+  createdAt: string;
+  reviewedAt?: string;
+  username?: string;
+  generatedPassword?: string;
+  rejectReason?: string;
+}
+

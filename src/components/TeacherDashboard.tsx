@@ -15,15 +15,100 @@ import {
   TrendingUp,
   GraduationCap,
   Calendar,
+  Cpu,
+  Shield,
+  Zap,
+  Sparkles,
+  RotateCcw,
+  CheckCircle2,
+  Sliders,
+  Layers,
+  AlertTriangle,
+  MousePointer,
+  Activity,
+  Search,
+  Filter,
+  Eye,
+  CheckCircle,
+  HelpCircle,
+  Flame,
+  BarChart2,
 } from "lucide-react";
+import {
+  edgeAI,
+  type ConceptMastery,
+  type TeacherAlert,
+  type EdgeTelemetrySummary,
+  type StudentCognitiveProfile,
+  type LearnerState,
+} from "../services/edge";
+import { TeacherLearnerAlert } from "./TeacherLearnerAlert";
+import { learnerIntelligenceAPI } from "../services/learnerIntelligenceService";
 
 export const TeacherDashboard: React.FC = () => {
   const { assignments, gradeAssignment, setView, boards, profile } = useLmsStore();
   const [gradingAssignId, setGradingAssignId] = useState<string | null>(null);
   const [generatedRoomCode, setGeneratedRoomCode] = useState("");
 
-  // Tab state
-  const [activeTab, setActiveTab] = useState<"overview" | "meetings">("overview");
+  // Tab state: overview | students | meetings | edge-ai
+  const [activeTab, setActiveTab] = useState<"overview" | "students" | "meetings" | "edge-ai">("overview");
+  const [edgeTelemetry, setEdgeTelemetry] = useState<EdgeTelemetrySummary>(edgeAI.getTelemetrySummary());
+  const [teacherAlerts, setTeacherAlerts] = useState<TeacherAlert[]>(edgeAI.getTeacherAlerts());
+  const [concepts, setConcepts] = useState<ConceptMastery[]>(edgeAI.feedbackCollector.getAllConceptMastery());
+  const [studentsList, setStudentsList] = useState<StudentCognitiveProfile[]>(edgeAI.getAllStudentsWithCognitiveState());
+  const [studentFilter, setStudentFilter] = useState<string>("ALL");
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [selectedStudent, setSelectedStudent] = useState<StudentCognitiveProfile | null>(null);
+  const [selectedAlert, setSelectedAlert] = useState<TeacherAlert | null>(null);
+  const [overrideLevel, setOverrideLevel] = useState<number>(2);
+  const [overrideNotes, setOverrideNotes] = useState<string>("");
+
+  const [backendTeacherAlerts, setBackendTeacherAlerts] = useState<any[]>([]);
+  const [agreementStats, setAgreementStats] = useState<any>(null);
+
+  const fetchBackendTeacherAlerts = async () => {
+    try {
+      const data = await learnerIntelligenceAPI.getTeacherAlerts();
+      if (data?.alerts) setBackendTeacherAlerts(data.alerts);
+      if (data?.stats) setAgreementStats(data.stats);
+    } catch (err) {
+      console.warn("Failed fetching backend teacher alerts:", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchBackendTeacherAlerts();
+    const alertInterval = setInterval(fetchBackendTeacherAlerts, 5000);
+    return () => clearInterval(alertInterval);
+  }, []);
+
+  const handleTeacherAction = async (
+    alertId: string,
+    action: 'APPROVE' | 'MODIFY' | 'OVERRIDE' | 'DISMISS',
+    details?: { teacherNotes?: string; overrideAction?: string }
+  ) => {
+    await learnerIntelligenceAPI.processTeacherAction(alertId, action, details);
+    await fetchBackendTeacherAlerts();
+  };
+
+  useEffect(() => {
+    const refreshStudents = () => {
+      setStudentsList(edgeAI.getAllStudentsWithCognitiveState());
+    };
+    refreshStudents();
+    const interval = setInterval(refreshStudents, 3000);
+
+    const unsub = edgeAI.subscribe((summary) => {
+      setEdgeTelemetry(summary);
+      setTeacherAlerts(edgeAI.getTeacherAlerts());
+      setConcepts(edgeAI.feedbackCollector.getAllConceptMastery());
+      setStudentsList(edgeAI.getAllStudentsWithCognitiveState());
+    });
+    return () => {
+      clearInterval(interval);
+      unsub();
+    };
+  }, []);
 
   // Meetings schedule state initialized with mocks, updated by DB
   const [meetings, setMeetings] = useState<any[]>([]);
@@ -293,10 +378,10 @@ export const TeacherDashboard: React.FC = () => {
       </div>
 
       {/* Tab Selector */}
-      <div className="flex border-b border-slate-200 dark:border-white/5 pb-1 gap-6">
+      <div className="flex border-b border-slate-200 dark:border-white/5 pb-1 gap-4 overflow-x-auto">
         <button
           onClick={() => setActiveTab("overview")}
-          className={`pb-3 text-xs font-bold uppercase tracking-wider transition-all border-b-2 flex items-center gap-2 ${
+          className={`pb-3 text-xs font-bold uppercase tracking-wider transition-all border-b-2 flex items-center gap-2 whitespace-nowrap ${
             activeTab === "overview"
               ? "border-brand-royal text-brand-royal dark:text-white"
               : "border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-350"
@@ -306,8 +391,22 @@ export const TeacherDashboard: React.FC = () => {
           <span>Dashboard Overview</span>
         </button>
         <button
+          onClick={() => setActiveTab("students")}
+          className={`pb-3 text-xs font-bold uppercase tracking-wider transition-all border-b-2 flex items-center gap-2 whitespace-nowrap ${
+            activeTab === "students"
+              ? "border-brand-royal text-brand-royal dark:text-white"
+              : "border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-350"
+          }`}
+        >
+          <Users className="w-4 h-4 text-emerald-500" />
+          <span>Enrolled Students & Cognitive Roster</span>
+          <span className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-extrabold px-2 py-0.5 rounded-full">
+            {studentsList.length}
+          </span>
+        </button>
+        <button
           onClick={() => setActiveTab("meetings")}
-          className={`pb-3 text-xs font-bold uppercase tracking-wider transition-all border-b-2 flex items-center gap-2 ${
+          className={`pb-3 text-xs font-bold uppercase tracking-wider transition-all border-b-2 flex items-center gap-2 whitespace-nowrap ${
             activeTab === "meetings"
               ? "border-brand-royal text-brand-royal dark:text-white"
               : "border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-350"
@@ -315,6 +414,22 @@ export const TeacherDashboard: React.FC = () => {
         >
           <Calendar className="w-4 h-4" />
           <span>Meeting Planner</span>
+        </button>
+        <button
+          onClick={() => setActiveTab("edge-ai")}
+          className={`pb-3 text-xs font-bold uppercase tracking-wider transition-all border-b-2 flex items-center gap-2 whitespace-nowrap ${
+            activeTab === "edge-ai"
+              ? "border-brand-royal text-brand-royal dark:text-white"
+              : "border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-350"
+          }`}
+        >
+          <Cpu className="w-4 h-4 text-brand-royal" />
+          <span>Edge AI & Human-in-the-Loop Hub</span>
+          {teacherAlerts.filter((a) => !a.resolved).length > 0 && (
+            <span className="text-[9px] bg-amber-500 text-white font-extrabold px-1.5 py-0.2 rounded-full">
+              {teacherAlerts.filter((a) => !a.resolved).length}
+            </span>
+          )}
         </button>
       </div>
 
@@ -527,7 +642,399 @@ export const TeacherDashboard: React.FC = () => {
               </div>
             </div>
           </div>
+
+          {/* Live Student Cognitive Health Roster (Overview Snapshot) */}
+          <div className="glass-card p-6 border-slate-200 dark:border-white/5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Users className="w-4 h-4 text-brand-royal" />
+                <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
+                  Live Cohort Cognitive Health & Behavioral Telemetry
+                </h3>
+              </div>
+              <button
+                onClick={() => setActiveTab("students")}
+                className="text-xs font-bold text-brand-royal dark:text-brand-royal-light flex items-center gap-1 hover:underline"
+              >
+                <span>View Full Roster & Telemetry Matrix ({studentsList.length} Students)</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {studentsList.slice(0, 6).map((s) => {
+                const stateColor =
+                  s.cognitiveState === "MASTERING"
+                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
+                    : s.cognitiveState === "STRUGGLING"
+                    ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30"
+                    : s.cognitiveState === "RECOVERING"
+                    ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30"
+                    : s.cognitiveState === "FORGETTING"
+                    ? "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30"
+                    : "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30";
+
+                return (
+                  <div
+                    key={s.studentId}
+                    onClick={() => {
+                      setSelectedStudent(s);
+                      setActiveTab("students");
+                    }}
+                    className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 hover:border-brand-royal/40 cursor-pointer transition-all space-y-2 text-left"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-xs text-slate-900 dark:text-white truncate">
+                        {s.studentName}
+                      </span>
+                      <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full border uppercase ${stateColor}`}>
+                        {s.cognitiveState}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] text-slate-500">
+                      <span>Score: <strong className="text-slate-800 dark:text-slate-200">{s.performanceScore}%</strong></span>
+                      <span>Hesitation: <strong className="text-slate-800 dark:text-slate-200">{s.mouseActivity.hesitationLevel}</strong></span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </>
+      )}
+
+      {/* ENROLLED STUDENTS & COGNITIVE ROSTER TAB */}
+      {activeTab === "students" && (
+        <div className="space-y-6 animate-fade-in-up">
+          {/* Header Card */}
+          <div className="glass-card p-6 border-slate-200 dark:border-white/5 bg-white dark:bg-slate-950/40 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="text-left">
+              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold uppercase tracking-wider border border-emerald-500/20 px-2.5 py-1 inline-flex items-center gap-1">
+                <Users className="w-3.5 h-3.5" />
+                <span>Live Edge AI Student Roster & Telemetry</span>
+              </span>
+              <h3 className="text-xl font-extrabold text-slate-900 dark:text-white mt-3">
+                Enrolled Scholars & Cognitive Health
+              </h3>
+              <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 max-w-2xl">
+                Real-time monitoring of all enrolled students. Telemetry is extracted from on-device mouse velocity, quiz attempts, answer switches, and active reading depth.
+              </p>
+            </div>
+
+            {/* Quick KPI stats */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="p-3 bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 text-center">
+                <span className="text-lg font-extrabold text-slate-900 dark:text-white block leading-none">{studentsList.length}</span>
+                <span className="text-[9px] text-slate-500 uppercase font-bold tracking-wider mt-1 block">Total Scholars</span>
+              </div>
+              <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-center">
+                <span className="text-lg font-extrabold text-rose-600 dark:text-rose-400 block leading-none">
+                  {studentsList.filter(s => s.cognitiveState === "STRUGGLING").length}
+                </span>
+                <span className="text-[9px] text-rose-600 dark:text-rose-400 uppercase font-bold tracking-wider mt-1 block">Struggling (At Risk)</span>
+              </div>
+              <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-center">
+                <span className="text-lg font-extrabold text-emerald-600 dark:text-emerald-400 block leading-none">
+                  {studentsList.filter(s => s.cognitiveState === "MASTERING").length}
+                </span>
+                <span className="text-[9px] text-emerald-600 dark:text-emerald-400 uppercase font-bold tracking-wider mt-1 block">Mastering</span>
+              </div>
+              <div className="p-3 bg-brand-royal/10 border border-brand-royal/20 text-center">
+                <span className="text-lg font-extrabold text-brand-royal dark:text-brand-royal-light block leading-none">
+                  {Math.round(studentsList.reduce((acc, s) => acc + s.performanceScore, 0) / Math.max(1, studentsList.length))}%
+                </span>
+                <span className="text-[9px] text-brand-royal uppercase font-bold tracking-wider mt-1 block">Avg Cohort Score</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Search and Filters Bar */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 glass-card p-4 border-slate-200 dark:border-white/5">
+            <div className="relative w-full sm:w-80">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search student name, email, class..."
+                className="w-full pl-9 pr-4 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-brand-royal/40"
+              />
+            </div>
+
+            <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0">
+              {[
+                { id: "ALL", label: "All Scholars" },
+                { id: "STRUGGLING", label: "Struggling", color: "text-rose-500" },
+                { id: "MASTERING", label: "Mastering", color: "text-emerald-500" },
+                { id: "PROGRESSING", label: "Progressing", color: "text-blue-500" },
+                { id: "RECOVERING", label: "Recovering", color: "text-amber-500" },
+                { id: "FORGETTING", label: "Retention Decay", color: "text-purple-500" },
+              ].map((f) => (
+                <button
+                  key={f.id}
+                  onClick={() => setStudentFilter(f.id)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+                    studentFilter === f.id
+                      ? "bg-brand-royal text-white shadow-sm"
+                      : "bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 hover:bg-slate-200"
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Students Grid List */}
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+            {studentsList
+              .filter((s) => {
+                const matchesSearch =
+                  s.studentName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                  s.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                  s.grade.toLowerCase().includes(searchQuery.toLowerCase());
+                const matchesFilter = studentFilter === "ALL" || s.cognitiveState === studentFilter;
+                return matchesSearch && matchesFilter;
+              })
+              .map((student) => {
+                const stateColor =
+                  student.cognitiveState === "MASTERING"
+                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
+                    : student.cognitiveState === "STRUGGLING"
+                    ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30 animate-pulse-slow"
+                    : student.cognitiveState === "RECOVERING"
+                    ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30"
+                    : student.cognitiveState === "FORGETTING"
+                    ? "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30"
+                    : "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30";
+
+                return (
+                  <div
+                    key={student.studentId}
+                    className="glass-card p-5 border-slate-200 dark:border-white/5 space-y-4 hover:border-brand-royal/40 transition-all flex flex-col justify-between"
+                  >
+                    {/* Header: Name, Avatar, Cognitive State Badge */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-royal to-brand-violet text-white flex items-center justify-center font-extrabold text-sm shadow-md">
+                          {student.studentName.charAt(0)}
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-extrabold text-slate-900 dark:text-white leading-tight">
+                            {student.studentName}
+                          </h4>
+                          <span className="text-[11px] text-slate-500 dark:text-slate-400 block font-mono">
+                            {student.email}
+                          </span>
+                          <span className="text-[10px] text-brand-royal dark:text-brand-royal-light font-bold mt-0.5 block">
+                            {student.grade} • {student.location || "Tamil Nadu"}
+                          </span>
+                        </div>
+                      </div>
+
+                      <span className={`text-[10px] font-extrabold px-2.5 py-1 rounded-full border uppercase tracking-wider ${stateColor}`}>
+                        {student.cognitiveState}
+                      </span>
+                    </div>
+
+                    {/* Performance Score Bar */}
+                    <div className="space-y-1.5 bg-slate-50 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-100 dark:border-slate-800/80">
+                      <div className="flex items-center justify-between text-xs font-bold">
+                        <span className="text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
+                          <Activity className="w-3.5 h-3.5 text-brand-royal" />
+                          <span>Performance Score</span>
+                        </span>
+                        <span className={`font-mono text-sm ${student.performanceScore >= 80 ? "text-emerald-500" : student.performanceScore >= 60 ? "text-amber-500" : "text-rose-500"}`}>
+                          {student.performanceScore}%
+                        </span>
+                      </div>
+                      <div className="w-full bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ${
+                            student.performanceScore >= 80
+                              ? "bg-emerald-500"
+                              : student.performanceScore >= 60
+                              ? "bg-amber-500"
+                              : "bg-rose-500"
+                          }`}
+                          style={{ width: `${student.performanceScore}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Monitored Behavioral Telemetry Grid */}
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      {/* Mouse Hesitation & Velocity */}
+                      <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800/80 space-y-1">
+                        <div className="flex items-center gap-1 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                          <MousePointer className="w-3 h-3 text-blue-500" />
+                          <span>Mouse Telemetry</span>
+                        </div>
+                        <p className="text-[11px] font-bold text-slate-800 dark:text-slate-200">
+                          {student.mouseActivity.hesitationLevel} ({(student.mouseActivity.jitterIndex * 100).toFixed(0)}% jitter)
+                        </p>
+                        <span className="text-[9px] text-slate-400 block font-mono">
+                          {student.mouseActivity.avgVelocity} px/s • {student.mouseActivity.totalDistancePx}px moved
+                        </span>
+                      </div>
+
+                      {/* Quiz Activity & Accuracy */}
+                      <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800/80 space-y-1">
+                        <div className="flex items-center gap-1 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                          <HelpCircle className="w-3 h-3 text-amber-500" />
+                          <span>Quiz Activity</span>
+                        </div>
+                        <p className="text-[11px] font-bold text-slate-800 dark:text-slate-200">
+                          {student.quizMetrics.accuracyRate}% Accuracy
+                        </p>
+                        <span className="text-[9px] text-slate-400 block font-mono">
+                          {student.quizMetrics.attemptsCount} quizzes • {student.quizMetrics.avgResponseTimeSec}s avg
+                        </span>
+                      </div>
+
+                      {/* Notes Reading Activity */}
+                      <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800/80 space-y-1">
+                        <div className="flex items-center gap-1 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                          <BookOpen className="w-3 h-3 text-emerald-500" />
+                          <span>Notes Reading</span>
+                        </div>
+                        <p className="text-[11px] font-bold text-slate-800 dark:text-slate-200">
+                          {student.notesReading.totalMinutesRead} mins focus
+                        </p>
+                        <span className="text-[9px] text-slate-400 block font-mono">
+                          {student.notesReading.scrollDepthPercent}% scroll depth
+                        </span>
+                      </div>
+
+                      {/* Video Watch Engagement */}
+                      <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800/80 space-y-1">
+                        <div className="flex items-center gap-1 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                          <Clock className="w-3 h-3 text-purple-500" />
+                          <span>Video Activity</span>
+                        </div>
+                        <p className="text-[11px] font-bold text-slate-800 dark:text-slate-200">
+                          {student.videoMetrics.totalMinutesWatched} mins watched
+                        </p>
+                        <span className="text-[9px] text-slate-400 block font-mono">
+                          {student.videoMetrics.replaysCount} video replays
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Action Button */}
+                    <button
+                      onClick={() => setSelectedStudent(student)}
+                      className="w-full py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-850 text-slate-800 dark:text-white border border-slate-200 dark:border-slate-800 text-xs font-bold transition-all flex items-center justify-center gap-2"
+                    >
+                      <Eye className="w-3.5 h-3.5 text-brand-royal" />
+                      <span>Inspect Cognitive Vector & Override</span>
+                    </button>
+                  </div>
+                );
+              })}
+          </div>
+
+          {/* Student Detailed Telemetry Modal */}
+          {selectedStudent && (
+            <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-2xl w-full p-6 space-y-5 shadow-2xl animate-in zoom-in-95 text-left max-h-[90vh] overflow-y-auto">
+                <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-xl bg-brand-royal text-white flex items-center justify-center font-bold text-base">
+                      {selectedStudent.studentName.charAt(0)}
+                    </div>
+                    <div>
+                      <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+                        {selectedStudent.studentName}
+                      </h3>
+                      <p className="text-xs text-slate-500 font-mono">{selectedStudent.email}</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setSelectedStudent(null)}
+                    className="text-slate-400 hover:text-slate-600 text-lg font-bold"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Evidence Alert Box */}
+                <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                    Edge AI Behavioral Inference Evidence
+                  </span>
+                  <p className="text-xs text-slate-800 dark:text-slate-200 font-medium">
+                    {selectedStudent.recentEvidence}
+                  </p>
+                </div>
+
+                {/* Concept Mastery Breakdown */}
+                <div className="space-y-2">
+                  <span className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                    Concept Knowledge Tracing
+                  </span>
+                  <div className="space-y-2">
+                    {selectedStudent.conceptMasteryList.map((c, i) => (
+                      <div key={i} className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800 text-xs">
+                        <span className="font-bold text-slate-800 dark:text-slate-200">{c.conceptName}</span>
+                        <div className="flex items-center gap-3">
+                          <span className="font-mono font-bold text-brand-royal">{c.score}%</span>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300">
+                            {c.state}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Teacher Override Console */}
+                <div className="p-4 rounded-xl bg-brand-royal/5 border border-brand-royal/20 space-y-3">
+                  <h4 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    <Sliders className="w-4 h-4 text-brand-royal" />
+                    <span>Assign Custom Scaffolding Intervention</span>
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <select
+                      value={overrideLevel}
+                      onChange={(e) => setOverrideLevel(parseInt(e.target.value, 10))}
+                      className="px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-medium"
+                    >
+                      <option value={0}>Level 0: No Scaffolding (Advance)</option>
+                      <option value={1}>Level 1: Quick Concept Hint</option>
+                      <option value={2}>Level 2: Step-by-Step Breakdown</option>
+                      <option value={3}>Level 3: Worked Problem Example</option>
+                      <option value={4}>Level 4: Scaffolded Micro-Practice</option>
+                      <option value={5}>Level 5: Prerequisite Revision Bridge</option>
+                    </select>
+                    <input
+                      type="text"
+                      value={overrideNotes}
+                      onChange={(e) => setOverrideNotes(e.target.value)}
+                      placeholder="Optional guidance notes..."
+                      className="px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs outline-none"
+                    />
+                  </div>
+                  <button
+                    onClick={() => {
+                      edgeAI.decisionEngine.setInterventionLevel(overrideLevel);
+                      useLmsStore.getState().addNotification(
+                        "Intervention Dispatched",
+                        `Support Level ${overrideLevel} applied to ${selectedStudent.studentName}.`,
+                        "success"
+                      );
+                      setSelectedStudent(null);
+                      setOverrideNotes("");
+                    }}
+                    className="w-full py-2.5 rounded-xl bg-brand-royal hover:bg-brand-royal/90 text-white text-xs font-bold transition-all shadow-md"
+                  >
+                    Apply Support Intervention to Student
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {activeTab === "meetings" && (
@@ -823,6 +1330,259 @@ export const TeacherDashboard: React.FC = () => {
                           </div>
                         </div>
                       ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edge AI & Human-in-the-Loop Hub Tab */}
+      {activeTab === "edge-ai" && (
+        <div className="space-y-6 animate-in fade-in">
+          {/* Top Edge AI Telemetry Summary Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
+              <div className="flex items-center justify-between text-xs text-slate-500">
+                <span className="font-bold uppercase tracking-wider">Edge Inference Latency</span>
+                <Zap className="w-4 h-4 text-emerald-500" />
+              </div>
+              <div className="text-2xl font-black font-mono text-emerald-500">
+                {edgeTelemetry.avgLatencyMs} ms
+              </div>
+              <span className="text-[10px] text-slate-400">Ultra-low local on-device inference</span>
+            </div>
+
+            <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
+              <div className="flex items-center justify-between text-xs text-slate-500">
+                <span className="font-bold uppercase tracking-wider">Active Learner State</span>
+                <Cpu className="w-4 h-4 text-brand-royal" />
+              </div>
+              <div className="text-xl font-black text-slate-900 dark:text-white">
+                {edgeTelemetry.activeLearnerState}
+              </div>
+              <span className="text-[10px] text-slate-400">{(edgeTelemetry.confidenceScore * 100).toFixed(0)}% AI Prediction Confidence</span>
+            </div>
+
+            <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
+              <div className="flex items-center justify-between text-xs text-slate-500">
+                <span className="font-bold uppercase tracking-wider">Human Override Flags</span>
+                <AlertTriangle className="w-4 h-4 text-amber-500" />
+              </div>
+              <div className="text-2xl font-black font-mono text-amber-500">
+                {teacherAlerts.filter((a) => !a.resolved).length}
+              </div>
+              <span className="text-[10px] text-slate-400">Requires Teacher Attention</span>
+            </div>
+
+            <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-1">
+              <div className="flex items-center justify-between text-xs text-slate-500">
+                <span className="font-bold uppercase tracking-wider">Privacy Preservation</span>
+                <Shield className="w-4 h-4 text-blue-500" />
+              </div>
+              <div className="text-xl font-black text-blue-500 font-mono">
+                {(edgeTelemetry.privacyDataGuardedBytes / 1024).toFixed(1)} KB
+              </div>
+              <span className="text-[10px] text-slate-400">Raw telemetry shielded at edge</span>
+            </div>
+          </div>
+
+          {/* Real-Time Teacher-in-the-Loop Human Action & Alerts Oversight */}
+          <TeacherLearnerAlert
+            alerts={backendTeacherAlerts}
+            agreementStats={agreementStats}
+            onAction={handleTeacherAction}
+          />
+
+          {/* Main 2-Column Layout: Concept Mastery Heatmap & Live Alert Stream */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Left Column: Concept Mastery & Knowledge Tracing Matrix (7 cols) */}
+            <div className="lg:col-span-7 space-y-4">
+              <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Layers className="w-5 h-5 text-brand-royal" />
+                    <h3 className="text-base font-extrabold font-display text-slate-900 dark:text-white">
+                      Class Concept-Level Mastery Heatmap
+                    </h3>
+                  </div>
+                  <span className="text-xs text-slate-400">{concepts.length} Monitored Concepts</span>
+                </div>
+
+                <div className="space-y-3">
+                  {concepts.length === 0 ? (
+                    <div className="text-center py-8 text-xs text-slate-400">
+                      No concept signals recorded yet. Students learning interactions will populate this heatmap.
+                    </div>
+                  ) : (
+                    concepts.map((c) => (
+                      <div
+                        key={c.conceptId}
+                        className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 space-y-2"
+                      >
+                        <div className="flex items-center justify-between text-xs">
+                          <div>
+                            <span className="font-bold text-slate-900 dark:text-white">{c.conceptName}</span>
+                            <span className="text-[10px] text-slate-400 ml-2">({c.attemptCount} interactions)</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                              c.state === "MASTERING"
+                                ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/30"
+                                : c.state === "STRUGGLING"
+                                ? "bg-amber-500/10 text-amber-600 border-amber-500/30"
+                                : c.state === "FORGETTING"
+                                ? "bg-rose-500/10 text-rose-600 border-rose-500/30"
+                                : "bg-blue-500/10 text-blue-600 border-blue-500/30"
+                            }`}>
+                              {c.state}
+                            </span>
+                            <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                              {c.masteryScore}%
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Visual Mastery Bar with Retention Decay */}
+                        <div className="w-full h-2 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${
+                              c.masteryScore >= 80 ? "bg-emerald-500" : c.masteryScore >= 50 ? "bg-blue-500" : "bg-amber-500"
+                            }`}
+                            style={{ width: `${c.masteryScore}%` }}
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between text-[10px] text-slate-500">
+                          <span>Retention Health: {c.retentionScore}%</span>
+                          {c.decayRisk && (
+                            <span className="text-rose-500 font-bold flex items-center gap-1">
+                              <RotateCcw className="w-3 h-3" /> Memory Decay Risk
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Right Column: Teacher Intervention & Override Console (5 cols) */}
+            <div className="lg:col-span-5 space-y-4">
+              <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Sliders className="w-5 h-5 text-amber-500" />
+                    <h3 className="text-base font-extrabold font-display text-slate-900 dark:text-white">
+                      Human-in-the-Loop Override
+                    </h3>
+                  </div>
+                  <span className="text-xs text-slate-400">Teacher Control</span>
+                </div>
+
+                {/* Alerts List */}
+                <div className="space-y-2.5 max-h-64 overflow-y-auto pr-1">
+                  {teacherAlerts.length === 0 ? (
+                    <div className="p-6 rounded-2xl bg-slate-50 dark:bg-slate-950 text-center text-xs text-slate-500">
+                      <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-2 opacity-80" />
+                      No students currently flagged for human intervention. AI model confidence is high across all active sessions.
+                    </div>
+                  ) : (
+                    teacherAlerts.map((alert) => (
+                      <div
+                        key={alert.id}
+                        onClick={() => setSelectedAlert(alert)}
+                        className={`p-3.5 rounded-2xl border text-xs text-left cursor-pointer transition-all ${
+                          selectedAlert?.id === alert.id
+                            ? "ring-2 ring-brand-royal border-transparent bg-brand-royal/5"
+                            : alert.resolved
+                            ? "bg-slate-50 dark:bg-slate-950 opacity-60 border-slate-200 dark:border-slate-800"
+                            : "bg-amber-500/5 dark:bg-amber-500/10 border-amber-500/30 hover:border-amber-500/60"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between font-bold">
+                          <span className="text-slate-900 dark:text-white">{alert.studentName}</span>
+                          <span className="text-[9px] uppercase px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-300">
+                            {alert.severity}
+                          </span>
+                        </div>
+                        <p className="text-[11px] font-semibold text-slate-800 dark:text-slate-200 mt-1">
+                          {alert.conceptName}: {alert.reason}
+                        </p>
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">
+                          {alert.evidence}
+                        </p>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Active Override Inspector Form */}
+                {selectedAlert && (
+                  <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
+                    <h4 className="text-xs font-bold text-slate-900 dark:text-white flex items-center justify-between">
+                      <span>Override Intervention for {selectedAlert.studentName}</span>
+                      <span className="text-[10px] text-slate-400 font-normal">
+                        Concept: {selectedAlert.conceptName}
+                      </span>
+                    </h4>
+
+                    <div className="space-y-1.5">
+                      <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block">
+                        Set Support Level:
+                      </span>
+                      <select
+                        value={overrideLevel}
+                        onChange={(e) => setOverrideLevel(parseInt(e.target.value, 10))}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs font-medium text-slate-800 dark:text-white"
+                      >
+                        <option value={0}>Level 0: No Scaffolding (Advance / Normal)</option>
+                        <option value={1}>Level 1: Quick Cognitive Hint</option>
+                        <option value={2}>Level 2: Step-by-Step Explanation</option>
+                        <option value={3}>Level 3: Worked Problem Example</option>
+                        <option value={4}>Level 4: Scaffolded Micro-Practice</option>
+                        <option value={5}>Level 5: Foundational Prerequisite Revision</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block">
+                        Teacher Notes / Targeted Guidance:
+                      </span>
+                      <textarea
+                        rows={2}
+                        value={overrideNotes}
+                        onChange={(e) => setOverrideNotes(e.target.value)}
+                        placeholder="Provide customized instruction or prerequisite guidance for this student..."
+                        className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-800 dark:text-white"
+                      />
+                    </div>
+
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        onClick={() => {
+                          edgeAI.decisionEngine.setInterventionLevel(overrideLevel);
+                          edgeAI.decisionEngine.resolveTeacherAlert(
+                            selectedAlert.id,
+                            `Teacher overrode level to ${overrideLevel}. Notes: ${overrideNotes}`
+                          );
+                          setTeacherAlerts(edgeAI.getTeacherAlerts());
+                          setSelectedAlert(null);
+                          setOverrideNotes("");
+                        }}
+                        className="flex-1 py-2 rounded-xl bg-brand-royal hover:bg-brand-royal/90 text-white text-xs font-bold transition-colors"
+                      >
+                        Apply Teacher Override
+                      </button>
+                      <button
+                        onClick={() => setSelectedAlert(null)}
+                        className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-xs font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>

@@ -145,6 +145,91 @@ export const authAPI = {
     }
     return res.json();
   },
+
+  submitRegistrationRequest: async (data: {
+    email: string;
+    name: string;
+    firstName?: string;
+    lastName?: string;
+    age: string;
+    location: string;
+    boardId: string;
+    classId: string;
+    boardTitle?: string;
+    classTitle?: string;
+    optedSubjectId?: string;
+  }) => {
+    const res = await fetch(`${API_BASE_URL}/auth/registration-request`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to submit registration request');
+    }
+    return res.json();
+  },
+
+  getRegistrationRequests: async () => {
+    const res = await fetch(`${API_BASE_URL}/auth/registration-requests`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to fetch registration requests');
+    }
+    return res.json() as Promise<{
+      requests: any[];
+      pendingCount: number;
+      totalCount: number;
+    }>;
+  },
+
+  approveRegistrationRequest: async (id: string) => {
+    const res = await fetch(`${API_BASE_URL}/auth/registration-request/${id}/approve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to approve registration request');
+    }
+    return res.json();
+  },
+
+  rejectRegistrationRequest: async (id: string, reason?: string) => {
+    const res = await fetch(`${API_BASE_URL}/auth/registration-request/${id}/reject`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to reject registration request');
+    }
+    return res.json();
+  },
+
+  removeRegistrationRequest: async (id: string, reason?: string) => {
+    const res = await fetch(`${API_BASE_URL}/auth/registration-request/${id}/remove`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to remove student and disable credentials');
+    }
+    return res.json();
+  },
+
+  getRegistrationStatus: async (email: string) => {
+    const res = await fetch(`${API_BASE_URL}/auth/registration-status?email=${encodeURIComponent(email)}`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to check registration status');
+    }
+    return res.json();
+  },
 };
 
 // ========================================

@@ -183,6 +183,12 @@ model Topic {
   studentProgress   StudentTopicProgress[]
   quizzes           Quiz[]
   assignments       Assignment[]
+  learnerStates     LearnerState[]
+  learnerInteractions LearnerInteraction[]
+  stateTransitions  StateTransition[]
+  adaptiveInterventions AdaptiveIntervention[]
+  teacherInterventions TeacherIntervention[]
+  conceptMasteries  ConceptMastery[]
 
   @@unique([chapterId, name])
   @@map("topics")
@@ -308,6 +314,12 @@ model Student {
   performanceReports    PerformanceReport[]
   learningStreak        LearningStreak?
   subjectStatistics     SubjectStatistics[]
+  learnerStates         LearnerState[]
+  learnerInteractions   LearnerInteraction[]
+  stateTransitions      StateTransition[]
+  adaptiveInterventions AdaptiveIntervention[]
+  teacherInterventions  TeacherIntervention[]
+  conceptMasteries      ConceptMastery[]
 
   @@map("students")
 }
@@ -834,4 +846,120 @@ model SubjectStatistics {
 
   @@unique([studentId, subjectId])
   @@map("subject_statistics")
+}
+
+// ==========================================
+// EDGE AI & SELF-ADAPTIVE LEARNING FRAMEWORK
+// ==========================================
+
+model LearnerState {
+  id            String   @id @default(uuid()) @db.Uuid
+  studentId     String   @map("student_id") @db.Uuid
+  topicId       String   @map("topic_id") @db.Uuid
+  currentState  String   @map("current_state") // PROGRESSING, MASTERING, STRUGGLING, RECOVERING, FORGETTING
+  previousState String?  @map("previous_state")
+  confidence    Float    @default(0.8)
+  features      Json?
+  reason        String?
+  detectedAt    DateTime @default(now()) @map("detected_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  topic   Topic   @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, topicId])
+  @@map("learner_states")
+}
+
+model LearnerInteraction {
+  id                      String   @id @default(uuid()) @db.Uuid
+  studentId               String   @map("student_id") @db.Uuid
+  topicId                 String   @map("topic_id") @db.Uuid
+  quizId                  String?  @map("quiz_id") @db.Uuid
+  questionId              String?  @map("question_id") @db.Uuid
+  interactionType         String   @map("interaction_type") // QUIZ_ANSWER, NOTES_READING, VIDEO_WATCH, PRACTICE
+  features                Json     // aggregates: mouseDistancePx, avgVelocity, jitterIndex, pauseCount, hesitationIndex, switchCount, backtrackCount, timeToFirstInteractionMs, durationMs
+  score                   Float?
+  createdAt               DateTime @default(now()) @map("created_at")
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  topic   Topic   @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@map("learner_interactions")
+}
+
+model StateTransition {
+  id              String   @id @default(uuid()) @db.Uuid
+  studentId       String   @map("student_id") @db.Uuid
+  topicId         String   @map("topic_id") @db.Uuid
+  previousState   String   @map("previous_state")
+  newState        String   @map("new_state")
+  confidence      Float
+  reason          String
+  triggerFeatures Json?    @map("trigger_features")
+  timestamp       DateTime @default(now())
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  topic   Topic   @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@map("state_transitions")
+}
+
+model AdaptiveIntervention {
+  id                String   @id @default(uuid()) @db.Uuid
+  studentId         String   @map("student_id") @db.Uuid
+  topicId           String   @map("topic_id") @db.Uuid
+  detectedState     String   @map("detected_state")
+  interventionLevel Int      @map("intervention_level") // 0 to 6
+  recommendation    String
+  reason            String
+  confidence        Float
+  actionPayload     Json?    @map("action_payload")
+  executedAction    String?  @map("executed_action")
+  result            String?
+  timestamp         DateTime @default(now())
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  topic   Topic   @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@map("adaptive_interventions")
+}
+
+model TeacherIntervention {
+  id               String   @id @default(uuid()) @db.Uuid
+  studentId        String   @map("student_id") @db.Uuid
+  topicId          String   @map("topic_id") @db.Uuid
+  teacherId        String?  @map("teacher_id") @db.Uuid
+  aiRecommendation String   @map("ai_recommendation")
+  aiConfidence     Float    @map("ai_confidence")
+  teacherAction    String   @map("teacher_action") // APPROVED, MODIFIED, OVERRIDDEN, DISMISSED
+  teacherOverride  String?  @map("teacher_override")
+  finalAction      String   @map("final_action")
+  notes            String?
+  timestamp        DateTime @default(now())
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  topic   Topic   @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@map("teacher_interventions")
+}
+
+model ConceptMastery {
+  id             String    @id @default(uuid()) @db.Uuid
+  studentId      String    @map("student_id") @db.Uuid
+  topicId        String    @map("topic_id") @db.Uuid
+  masteryScore   Float     @default(0.0) @map("mastery_score")
+  attemptsCount  Int       @default(0) @map("attempts_count")
+  correctCount   Int       @default(0) @map("correct_count")
+  lastAttemptAt  DateTime? @map("last_attempt_at")
+  decayFactor    Float     @default(1.0) @map("decay_factor")
+  retentionScore Float     @default(100.0) @map("retention_score")
+  lastMasteredAt DateTime? @map("last_mastered_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  topic   Topic   @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, topicId])
+  @@map("concept_masteries")
 }

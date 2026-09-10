@@ -15,8 +15,14 @@ import {
   Sparkles,
   Eye,
   EyeOff,
+  Clock,
+  CheckCircle2,
 } from "lucide-react";
-import { saveRegisteredStudent, getRegisteredStudents } from "../utils/localStorage";
+import {
+  saveRegisteredStudent,
+  getRegisteredStudents,
+  saveStoredRegistrationRequest,
+} from "../utils/localStorage";
 import { authAPI } from "../services/api";
 import { PlanetLogo } from "./PlanetLogo";
 
@@ -84,6 +90,9 @@ export const SignupPage: React.FC = () => {
   const [filteredLocations, setFilteredLocations] = useState<string[]>([]);
   const [showLocationSuggestions, setShowLocationSuggestions] = useState(false);
   const locationRef = useRef<HTMLDivElement>(null);
+
+  // Registration Request Submission State
+  const [submittedRequest, setSubmittedRequest] = useState<any>(null);
 
   // Credentials Modal State
   const [showCredentialsModal, setShowCredentialsModal] = useState(false);
@@ -248,71 +257,55 @@ export const SignupPage: React.FC = () => {
       const nameParts = name.trim().split(/\s+/);
       const firstName = nameParts[0] || "Scholar";
       const lastName = nameParts.slice(1).join(" ") || "Student";
+      const boardTitle = activeBoard?.title || "Academic Board";
+      const classTitle = activeClass?.title || "Class";
 
-      let serverResult = null;
-      try {
-        serverResult = await authAPI.signup(
-          email.trim().toLowerCase(),
-          "",
-          firstName,
-          lastName,
-          role,
-          boardId,
-          classId
-        );
-      } catch (signupErr) {
-        console.warn("LMS server signup failed or running in offline mock mode.", signupErr);
-      }
-
-      const defaultOptedSubjectId = subjects[0]?.id || optedSubjectId;
-      const newProfile = {
-        id: serverResult?.user?.id || `student-${Date.now()}`,
+      const payload = {
         name: name.trim(),
-        username: email.trim().toLowerCase().split("@")[0],
-        password: "",
+        firstName,
+        lastName,
         email: email.trim().toLowerCase(),
-        role: "student" as const,
-        selectedBoardId: boardId,
-        selectedClassId: classId,
-        age: age,
+        age: age.trim(),
         location: location.trim(),
-        optedSubjectId: defaultOptedSubjectId,
-        xp: 100,
-        level: 1,
-        coins: 10,
-        streak: 1,
-        achievements: [
-          {
-            id: "ach-1",
-            title: "Fresh Scholar",
-            description: "Created a Nexora Learning account",
-            icon: "🌱",
-            unlockedAt: new Date().toLocaleDateString("en-IN"),
-          },
-        ],
-        certificates: [],
+        boardId,
+        classId,
+        boardTitle,
+        classTitle,
+        optedSubjectId: subjects[0]?.id || optedSubjectId,
       };
 
-      saveRegisteredStudent(newProfile);
+      let createdRequest: any = null;
+      try {
+        const res = await authAPI.submitRegistrationRequest(payload);
+        createdRequest = res.request;
+      } catch (submitErr: any) {
+        console.warn("Backend registration API notice, proceeding with client store:", submitErr);
+      }
 
-      // Store signup info temporarily for subscription flow
-      localStorage.setItem(
-        "pendingSubscription",
-        JSON.stringify({
-          email: email.trim().toLowerCase(),
-          firstName,
-          lastName,
-          role: role.toUpperCase(),
-          profile: newProfile,
-          signupTime: new Date().toISOString(),
-        })
+      if (!createdRequest) {
+        createdRequest = {
+          id: `req-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          ...payload,
+          status: "PENDING",
+          createdAt: new Date().toISOString(),
+        };
+      }
+
+      // Save to localStorage for instant synchronization across tabs and admin portal
+      saveStoredRegistrationRequest(createdRequest);
+
+      // Add system in-app notification
+      const { addNotification } = useLmsStore.getState();
+      addNotification(
+        "Application Submitted",
+        `Registration for ${name.trim()} submitted to Administrator for verification.`,
+        "info"
       );
 
-      // Redirect to subscription/credentials page
-      setView("get-credentials");
+      setSubmittedRequest(createdRequest);
     } catch (err: any) {
       console.error(err);
-      setError(err?.message || "Registration failed. Please check network connection.");
+      setError(err?.message || "Registration submission failed. Please check network connection.");
     } finally {
       setLoading(false);
     }
@@ -389,24 +382,124 @@ export const SignupPage: React.FC = () => {
         </button>
       </div>
 
-      {/* Unified Registration Card */}
-      <div className="w-full max-w-lg bg-white border border-slate-300 p-8 rounded-none relative z-10 shadow-xl my-16">
-        <div className="text-center mb-6">
-          <h2 className="text-xl font-bold font-display text-slate-900 uppercase tracking-wide text-center">
-            <span>Create Academic Identity</span>
-          </h2>
-          <p className="text-xs text-slate-500 mt-1.5">
-            Register your Gmail to get generated credentials details delivered directly to your inbox.
-          </p>
-        </div>
-
-        {error && (
-          <div className="p-3 mb-4 bg-red-50 border border-red-200 text-red-600 text-xs font-medium rounded-none">
-            {error}
+      {/* Unified Registration Card or Submitted Screen */}
+      {submittedRequest ? (
+        <div className="w-full max-w-lg bg-white border border-slate-300 p-8 rounded-none relative z-10 shadow-xl my-16 text-left animate-fade-in-up">
+          <div className="text-center mb-6">
+            <div className="w-14 h-14 bg-amber-50 text-amber-600 border border-amber-300 flex items-center justify-center mx-auto mb-3">
+              <Clock className="w-7 h-7 animate-pulse" />
+            </div>
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-50 text-amber-800 text-[10px] font-bold uppercase tracking-wider border border-amber-200 mb-2.5">
+              <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+              <span>Status: Awaiting Administrator Approval</span>
+            </div>
+            <h2 className="text-xl font-bold font-display text-slate-900 uppercase tracking-wide">
+              Registration Submitted!
+            </h2>
+            <p className="text-xs text-slate-500 mt-1.5 max-w-sm mx-auto">
+              Your details have been submitted to the Administrator for verification.
+            </p>
           </div>
-        )}
 
-        <form onSubmit={handleSignupSubmit} className="space-y-4 text-left">
+          {/* Submitted details summary */}
+          <div className="p-4 bg-slate-50 border border-slate-200 space-y-2.5 text-xs mb-5">
+            <div className="flex justify-between items-center py-1 border-b border-slate-200/80">
+              <span className="text-slate-500 font-medium">Applicant Name:</span>
+              <span className="font-bold text-slate-800">{submittedRequest.name}</span>
+            </div>
+            <div className="flex justify-between items-center py-1 border-b border-slate-200/80">
+              <span className="text-slate-500 font-medium">Gmail Address:</span>
+              <span className="font-bold text-brand-royal break-all">{submittedRequest.email}</span>
+            </div>
+            <div className="flex justify-between items-center py-1 border-b border-slate-200/80">
+              <span className="text-slate-500 font-medium">Class & Board:</span>
+              <span className="font-semibold text-slate-800">{submittedRequest.classTitle} ({submittedRequest.boardTitle})</span>
+            </div>
+            <div className="flex justify-between items-center py-1 border-b border-slate-200/80">
+              <span className="text-slate-500 font-medium">State & Age:</span>
+              <span className="text-slate-700">{submittedRequest.location} &bull; Age {submittedRequest.age}</span>
+            </div>
+            <div className="flex justify-between items-center pt-1">
+              <span className="text-slate-400 text-[10px]">Reference ID:</span>
+              <span className="font-mono text-[10px] text-slate-500">{submittedRequest.id}</span>
+            </div>
+          </div>
+
+          {/* Workflow Next Steps */}
+          <div className="space-y-3 mb-6">
+            <p className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">Next Steps:</p>
+            <div className="space-y-2 text-xs">
+              <div className="flex items-start gap-2.5 p-2.5 bg-emerald-50/70 border border-emerald-200/70">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold text-emerald-950 block">1. Registration Captured</span>
+                  <span className="text-emerald-800 text-[11px]">Academic identity details saved to verification registry.</span>
+                </div>
+              </div>
+              <div className="flex items-start gap-2.5 p-2.5 bg-amber-50/80 border border-amber-300">
+                <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5 animate-pulse" />
+                <div>
+                  <span className="font-bold text-amber-950 block">2. Administrator Review (Current)</span>
+                  <span className="text-amber-800 text-[11px]">Administrator is notified and can Accept or Reject your registration in their menu.</span>
+                </div>
+              </div>
+              <div className="flex items-start gap-2.5 p-2.5 bg-slate-50 border border-slate-200 opacity-70">
+                <Mail className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold text-slate-700 block">3. Unique Credentials Delivered to Gmail</span>
+                  <span className="text-slate-500 text-[11px]">Once accepted, an automated email containing your unique Username and temporary Password will be sent to {submittedRequest.email}.</span>
+                </div>
+              </div>
+              <div className="flex items-start gap-2.5 p-2.5 bg-slate-50 border border-slate-200 opacity-70">
+                <Shield className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold text-slate-700 block">4. Sign In & Learn</span>
+                  <span className="text-slate-500 text-[11px]">Use your emailed credentials on the Sign In page to access your workspace.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <button
+              onClick={() => setView("login")}
+              className="w-full premium-btn-primary py-3 text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2"
+            >
+              <span>Go to Sign In</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => {
+                setSubmittedRequest(null);
+                setName("");
+                setEmail("");
+                setAge("");
+                setLocation("");
+              }}
+              className="w-full py-2.5 text-xs text-slate-600 hover:text-slate-900 font-semibold border border-slate-300 hover:bg-slate-50 transition-colors text-center"
+            >
+              Register Another Student
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="w-full max-w-lg bg-white border border-slate-300 p-8 rounded-none relative z-10 shadow-xl my-16">
+          <div className="text-center mb-6">
+            <h2 className="text-xl font-bold font-display text-slate-900 uppercase tracking-wide text-center">
+              <span>Create Academic Identity</span>
+            </h2>
+            <p className="text-xs text-slate-500 mt-1.5">
+              Register your Gmail to get generated credentials details delivered directly to your inbox.
+            </p>
+          </div>
+
+          {error && (
+            <div className="p-3 mb-4 bg-red-50 border border-red-200 text-red-600 text-xs font-medium rounded-none">
+              {error}
+            </div>
+          )}
+
+          <form onSubmit={handleSignupSubmit} className="space-y-4 text-left">
 
 
           {/* Personal Details Row */}
@@ -574,6 +667,7 @@ export const SignupPage: React.FC = () => {
           </button>
         </div>
       </div>
+      )}
 
       {/* Credentials details modal on successful signup */}
       {showCredentialsModal && registeredCredentials && (

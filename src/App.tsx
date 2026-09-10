@@ -39,6 +39,7 @@ import { DemoPanel } from "./components/DemoPanel";
 import { GetCredentialsPage } from "./components/GetCredentialsPage";
 import { ForgotPasswordPage } from "./components/ForgotPasswordPage";
 import { ResetPasswordPage } from "./components/ResetPasswordPage";
+import { EdgeAILabView } from "./components/EdgeAILabView";
 
 function RoomJoinFallback() {
   const { setView, joinLiveRoom, profile } = useLmsStore();
@@ -878,11 +879,15 @@ function App() {
       case "admin-structure":
       case "admin-analytics":
       case "admin-upload":
+      case "admin-approvals":
+      case "admin-users":
         return <AdminPortal />;
       case "parent-portal":
         return <ParentPortal />;
       case "ai-tutor":
         return <AITutor />;
+      case "edge-ai-lab":
+        return <EdgeAILabView />;
       case "webrtc-live":
         if (!liveRoomState) {
           return <RoomJoinFallback />;

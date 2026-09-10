@@ -3,7 +3,16 @@ import bcrypt from 'bcryptjs';
 import { prisma } from '../lib/prisma.js';
 import { mapUserProfile } from '../lib/mappers.js';
 import { signToken, requireAuth, requireAdmin } from '../middleware/auth.js';
-import { generateSecurePassword, sendCredentialsEmail, sendSubscriptionConfirmationEmail, sendOtpEmail } from '../lib/emailService.js';
+import {
+  generateSecurePassword,
+  sendCredentialsEmail,
+  sendSubscriptionConfirmationEmail,
+  sendOtpEmail,
+  sendStudentApprovalEmail,
+  sendStudentRejectionEmail,
+  sendAdminRegistrationAlert,
+} from '../lib/emailService.js';
+import { registrationStore } from '../lib/registrationStore.js';
 
 const router = Router();
 
@@ -50,18 +59,45 @@ router.get('/check-email', async (req, res) => {
 
 router.post('/login', async (req, res) => {
   const { email, password } = req.body as { email?: string; password?: string };
-  if (password) {
-    const charCodes = Array.from(password).map(c => c.charCodeAt(0)).join(', ');
-    console.log(`[server] Login attempt: email="${email}", passwordLength=${password.length}, charCodes=[${charCodes}]`);
-  } else {
-    console.log(`[server] Login attempt: email="${email}", password=undefined`);
-  }
   if (!email || !password) {
     console.warn(`[server] Login failed: Missing email or password in request body`);
     return res.status(400).json({ error: 'Email and password are required' });
   }
 
-  const user = await loadUser(email.toLowerCase());
+  const rawInput = email.toLowerCase().trim();
+
+  // Check if input matches an assigned unique username in registrationStore
+  let resolvedEmail = rawInput;
+  const allRequests = registrationStore.getAll();
+  const matchedByUsername = allRequests.find(r => r.username?.toLowerCase() === rawInput);
+  if (matchedByUsername) {
+    resolvedEmail = matchedByUsername.email.toLowerCase();
+  }
+
+  // Verify registration status
+  const regReq = registrationStore.getByEmail(resolvedEmail);
+  if (regReq) {
+    if (regReq.status === 'REMOVED') {
+      return res.status(403).json({
+        error: `Your student account has been removed by the administrator and your credentials have been disabled. ${regReq.rejectReason ? `Reason: ${regReq.rejectReason}` : 'Please contact the school administration.'}`,
+        status: 'REMOVED'
+      });
+    }
+    if (regReq.status === 'PENDING') {
+      return res.status(403).json({
+        error: 'Your registration is currently pending administrator approval. You will receive an email with your unique login credentials once verified.',
+        status: 'PENDING'
+      });
+    }
+    if (regReq.status === 'REJECTED') {
+      return res.status(403).json({
+        error: `Your registration request was not approved by the administrator. ${regReq.rejectReason ? `Reason: ${regReq.rejectReason}` : 'Please contact support or re-apply.'}`,
+        status: 'REJECTED'
+      });
+    }
+  }
+
+  const user = await loadUser(resolvedEmail);
   if (!user) {
     console.warn(`[server] Login failed: User not found in database for email="${email}"`);
     return res.status(401).json({ error: 'Invalid credentials' });
@@ -411,8 +447,6 @@ router.post('/logout', (_req, res) => {
   res.json({ success: true });
 });
 
-export default router;
-
 // Forgot password: send OTP
 router.post('/forgot-password', async (req, res) => {
   const { email } = req.body as { email?: string };
@@ -463,4 +497,377 @@ router.post('/reset-password', async (req, res) => {
     return res.status(500).json({ error: err.message || 'Failed to reset password' });
   }
 });
+
+// ============================================================================
+// STUDENT REGISTRATION & ADMIN APPROVAL PIPELINE
+// ============================================================================
+
+// Submit Student Registration Request (Awaiting Admin Approval)
+router.post('/registration-request', async (req, res) => {
+  const {
+    email,
+    name,
+    firstName,
+    lastName,
+    age,
+    location,
+    boardId,
+    classId,
+    boardTitle,
+    classTitle,
+    optedSubjectId,
+  } = req.body as {
+    email?: string;
+    name?: string;
+    firstName?: string;
+    lastName?: string;
+    age?: string;
+    location?: string;
+    boardId?: string;
+    classId?: string;
+    boardTitle?: string;
+    classTitle?: string;
+    optedSubjectId?: string;
+  };
+
+  if (!email || !email.trim()) {
+    return res.status(400).json({ error: 'Gmail address is required' });
+  }
+
+  const normalizedEmail = email.trim().toLowerCase();
+
+  try {
+    // Check if user is already an approved registered user in the database
+    const existingUser = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
+
+    const existingRequest = registrationStore.getByEmail(normalizedEmail);
+    if (existingUser && (!existingRequest || existingRequest.status === 'APPROVED')) {
+      return res.status(409).json({ error: 'This email is already registered and approved. Please sign in.' });
+    }
+
+    const finalName = (name || `${firstName || ''} ${lastName || ''}`).trim() || 'Scholar';
+    const nameParts = finalName.split(/\s+/);
+    const finalFirstName = firstName || nameParts[0] || 'Scholar';
+    const finalLastName = lastName || nameParts.slice(1).join(' ') || 'Student';
+
+    const regRequest = registrationStore.create({
+      name: finalName,
+      firstName: finalFirstName,
+      lastName: finalLastName,
+      email: normalizedEmail,
+      age: age ? String(age) : '',
+      location: location || '',
+      boardId: boardId || '',
+      boardTitle: boardTitle || 'Academic Board',
+      classId: classId || '',
+      classTitle: classTitle || 'Class',
+      optedSubjectId: optedSubjectId || '',
+    });
+
+    // Notify administrator in background via email
+    sendAdminRegistrationAlert(
+      finalName,
+      normalizedEmail,
+      boardTitle || 'Academic Board',
+      classTitle || 'Class',
+      age ? String(age) : '',
+      location || ''
+    ).catch((err) => console.warn('Admin email alert notice:', err));
+
+    // Also register an in-app system notification for Admin
+    try {
+      const adminUsers = await prisma.user.findMany({
+        where: { role: 'ADMIN' },
+        select: { id: true },
+      });
+
+      if (adminUsers.length > 0) {
+        const notification = await prisma.notification.create({
+          data: {
+            title: `New Student Registration: ${finalName}`,
+            body: `${finalName} (${normalizedEmail}) registered for ${classTitle || 'Class'}. Awaiting your approval.`,
+            type: 'SYSTEM',
+          },
+        });
+
+        for (const admin of adminUsers) {
+          await prisma.userNotification.create({
+            data: {
+              userId: admin.id,
+              notificationId: notification.id,
+              isRead: false,
+            },
+          }).catch(() => {});
+        }
+      }
+    } catch (notifErr) {
+      console.warn('Failed to insert admin in-app notification:', notifErr);
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: 'Your registration has been submitted and is awaiting administrator approval. You will receive an email once approved.',
+      request: regRequest,
+    });
+  } catch (error: any) {
+    console.error('Registration request error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to submit registration request' });
+  }
+});
+
+// Get all Registration Requests (for Admin portal)
+router.get('/registration-requests', async (_req, res) => {
+  try {
+    // Automatically synchronize all registered database students so all registered students till now are displayed for admin
+    try {
+      const dbStudents = await prisma.user.findMany({
+        where: { role: 'STUDENT' },
+        include: {
+          studentProfile: {
+            include: {
+              board: true,
+              class: true,
+            },
+          },
+        },
+      });
+      registrationStore.syncExistingUsers(dbStudents);
+    } catch (syncErr) {
+      console.warn('Could not sync DB students to registration store:', syncErr);
+    }
+
+    const requests = registrationStore.getAll();
+    const pendingCount = registrationStore.getPendingCount();
+    return res.json({
+      requests,
+      pendingCount,
+      totalCount: requests.length,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed to fetch registration requests' });
+  }
+});
+
+// Check Registration Status by student email
+router.get('/registration-status', async (req, res) => {
+  const { email } = req.query as { email?: string };
+  if (!email) return res.status(400).json({ error: 'Email parameter is required' });
+
+  const record = registrationStore.getByEmail(email);
+  if (!record) {
+    return res.json({ status: 'NOT_FOUND' });
+  }
+
+  return res.json({
+    status: record.status,
+    request: record,
+  });
+});
+
+// Admin Approve Registration Request
+router.post('/registration-request/:id/approve', async (req, res) => {
+  const { id } = req.params;
+  const targetRequest = registrationStore.getById(id);
+
+  if (!targetRequest) {
+    return res.status(404).json({ error: 'Registration request not found' });
+  }
+
+  try {
+    // Generate unique username: first.last_xxxx
+    const cleanFirstName = targetRequest.firstName.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const cleanLastName = targetRequest.lastName.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const randSuffix = Math.floor(1000 + Math.random() * 9000);
+    const uniqueUsername = `${cleanFirstName || 'scholar'}.${cleanLastName || 'student'}_${randSuffix}`;
+
+    // Generate unique secure password
+    const generatedPassword = generateSecurePassword();
+    const passwordHash = await bcrypt.hash(generatedPassword, 10);
+
+    // Resolve Board & Class UUIDs in PostgreSQL DB
+    let targetBoardId = targetRequest.boardId;
+    let targetClassId = targetRequest.classId;
+
+    try {
+      const existingBoard = await prisma.board.findFirst({
+        where: {
+          OR: [
+            { id: targetRequest.boardId.includes('-') && targetRequest.boardId.length === 36 ? targetRequest.boardId : undefined },
+            { code: { contains: targetRequest.boardId, mode: 'insensitive' } },
+            { name: { contains: targetRequest.boardTitle || '', mode: 'insensitive' } }
+          ].filter(Boolean) as any
+        },
+        include: { classes: true }
+      });
+
+      if (existingBoard) {
+        targetBoardId = existingBoard.id;
+        const matchedClass = existingBoard.classes.find(c =>
+          c.id === targetRequest.classId ||
+          c.name.toLowerCase().includes(targetRequest.classTitle?.toLowerCase() || '')
+        );
+        targetClassId = matchedClass ? matchedClass.id : (existingBoard.classes[0]?.id || targetRequest.classId);
+      } else {
+        const anyBoard = await prisma.board.findFirst({ include: { classes: true } });
+        if (anyBoard) {
+          targetBoardId = anyBoard.id;
+          targetClassId = anyBoard.classes[0]?.id || targetRequest.classId;
+        }
+      }
+    } catch (uuidLookupErr) {
+      console.warn('Board lookup notice:', uuidLookupErr);
+    }
+
+    // Upsert User in Database with STUDENT role
+    const existingUser = await prisma.user.findUnique({
+      where: { email: targetRequest.email.toLowerCase() },
+    });
+
+    let dbUser;
+    if (existingUser) {
+      dbUser = await prisma.user.update({
+        where: { id: existingUser.id },
+        data: {
+          passwordHash,
+          role: 'STUDENT',
+          firstName: targetRequest.firstName,
+          lastName: targetRequest.lastName,
+        },
+      });
+    } else {
+      dbUser = await prisma.user.create({
+        data: {
+          email: targetRequest.email.toLowerCase(),
+          passwordHash,
+          firstName: targetRequest.firstName,
+          lastName: targetRequest.lastName,
+          role: 'STUDENT',
+          ...(targetBoardId && targetClassId
+            ? {
+                studentProfile: {
+                  create: {
+                    boardId: targetBoardId,
+                    classId: targetClassId,
+                    analytics: { create: { xp: 100 } },
+                    learningStreak: { create: { currentStreak: 1, longestStreak: 1 } },
+                  },
+                },
+              }
+            : {}),
+        },
+      });
+    }
+
+    // Update registration request in persistent store
+    const approvedRequest = registrationStore.approve(id, uniqueUsername, generatedPassword);
+
+    // Send Acceptance email to student's Gmail with unique credentials
+    await sendStudentApprovalEmail(
+      targetRequest.email.toLowerCase(),
+      targetRequest.firstName,
+      targetRequest.lastName,
+      uniqueUsername,
+      generatedPassword,
+      targetRequest.boardTitle,
+      targetRequest.classTitle
+    );
+
+    return res.json({
+      success: true,
+      message: `Registration accepted. Unique credentials sent to ${targetRequest.email}.`,
+      request: approvedRequest,
+      credentials: {
+        email: targetRequest.email.toLowerCase(),
+        username: uniqueUsername,
+        password: generatedPassword,
+      },
+    });
+  } catch (err: any) {
+    console.error('Approval error:', err);
+    return res.status(500).json({ error: err.message || 'Failed to approve registration request' });
+  }
+});
+
+// Admin Reject Registration Request
+router.post('/registration-request/:id/reject', async (req, res) => {
+  const { id } = req.params;
+  const { reason } = req.body as { reason?: string };
+  const targetRequest = registrationStore.getById(id);
+
+  if (!targetRequest) {
+    return res.status(404).json({ error: 'Registration request not found' });
+  }
+
+  try {
+    const rejectedRequest = registrationStore.reject(
+      id,
+      reason || 'Academic eligibility criteria could not be verified.'
+    );
+
+    // Send Rejection email to student's Gmail
+    await sendStudentRejectionEmail(
+      targetRequest.email.toLowerCase(),
+      targetRequest.firstName,
+      targetRequest.lastName,
+      reason || 'Academic eligibility criteria could not be verified.'
+    );
+
+    return res.json({
+      success: true,
+      message: `Registration rejected. Status update email sent to ${targetRequest.email}.`,
+      request: rejectedRequest,
+    });
+  } catch (err: any) {
+    console.error('Rejection error:', err);
+    return res.status(500).json({ error: err.message || 'Failed to reject registration request' });
+  }
+});
+
+// Admin Remove Student & Disable Credentials
+router.post('/registration-request/:id/remove', async (req, res) => {
+  const { id } = req.params;
+  const { reason } = req.body as { reason?: string };
+  const targetRequest = registrationStore.getById(id);
+
+  if (!targetRequest) {
+    return res.status(404).json({ error: 'Student registration record not found' });
+  }
+
+  try {
+    const removalReason = reason || 'Student account removed and credentials disabled by administrator.';
+
+    // 1. Update registration store status to REMOVED
+    const removedRequest = registrationStore.remove(id, removalReason);
+
+    // 2. Disable credentials in DB if user exists by revoking passwordHash
+    const normalizedEmail = targetRequest.email.toLowerCase().trim();
+    const dbUser = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
+
+    if (dbUser) {
+      const revokedHash = `REVOKED_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+      await prisma.user.update({
+        where: { id: dbUser.id },
+        data: {
+          passwordHash: revokedHash,
+        },
+      });
+      console.log(`[server] Disabled credentials for student ${normalizedEmail}`);
+    }
+
+    return res.json({
+      success: true,
+      message: `Student account for ${targetRequest.name || targetRequest.email} removed and credentials disabled successfully.`,
+      request: removedRequest,
+    });
+  } catch (err: any) {
+    console.error('Remove student error:', err);
+    return res.status(500).json({ error: err.message || 'Failed to remove student and disable credentials' });
+  }
+});
+
+export default router;
 

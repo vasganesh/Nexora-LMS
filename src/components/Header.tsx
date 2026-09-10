@@ -11,6 +11,8 @@ import {
   Bell,
 } from "lucide-react";
 
+import { EdgeAIStatusWidget } from "./EdgeAIStatusWidget";
+
 interface HeaderProps {
   onToggleSidebar?: () => void;
 }
@@ -45,6 +47,7 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
     "ai-tutor": "AI Personal Tutor",
     "drm-security": "DRM Security Console",
     "parent-portal": "Parent Monitor Shield",
+    "edge-ai-lab": "Edge AI Framework Lab",
   };
 
   const handleNotifClick = () => {
@@ -75,6 +78,8 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
 
       {/* Top Navigation Options / Badges */}
       <div className="flex items-center gap-4">
+        {/* Edge AI Telemetry Pill */}
+        <EdgeAIStatusWidget />
         {/* Notifications Bell Dropdown */}
         <div className="relative">
           <button
@@ -111,7 +116,18 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
                   notifications.map((notif) => (
                     <div
                       key={notif.id}
-                      className={`p-3.5 text-left transition-colors hover:bg-slate-50 dark:hover:bg-white/5 ${
+                      onClick={() => {
+                        if (
+                          profile.role === "admin" &&
+                          (notif.title.toLowerCase().includes("registration") ||
+                            notif.message.toLowerCase().includes("registration") ||
+                            notif.title.toLowerCase().includes("scholar"))
+                        ) {
+                          setView("admin-approvals");
+                          setShowNotifMenu(false);
+                        }
+                      }}
+                      className={`p-3.5 text-left transition-colors hover:bg-slate-50 dark:hover:bg-white/5 cursor-pointer ${
                         !notif.read ? "bg-brand-royal/[0.03]" : ""
                       }`}
                     >

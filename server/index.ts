@@ -13,6 +13,10 @@ import tutorRoutes from './routes/tutor.js';
 import uploadRoutes from './routes/upload.js';
 import liveClassRoutes from './routes/live-class.js';
 import notificationRoutes from './routes/notification.js';
+import learnerStateRoutes from './routes/learner-state.js';
+import interactionRoutes from './routes/interactions.js';
+import adaptiveRoutes from './routes/adaptive.js';
+import interventionRoutes from './routes/intervention.js';
 
 // Start the database if it is not already running
 await startDatabase();
@@ -43,6 +47,10 @@ app.use('/api', tutorRoutes);
 app.use('/api', liveClassRoutes);
 app.use('/api', uploadRoutes);
 app.use('/api', notificationRoutes);
+app.use('/api/learner-state', learnerStateRoutes);
+app.use('/api/interactions', interactionRoutes);
+app.use('/api/adaptive', adaptiveRoutes);
+app.use('/api/interventions', interventionRoutes);
 
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });

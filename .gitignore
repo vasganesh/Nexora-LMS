@@ -27,3 +27,4 @@ secrets.*
 
 # Agent/IDE Temporary Files
 .claude
+.snapshots

@@ -20,7 +20,11 @@ import {
   ChevronRight,
   X,
   Notebook,
+  Cpu,
+  UserCheck,
 } from "lucide-react";
+import { getPendingRegistrationRequestsCount } from "../utils/localStorage";
+import { authAPI } from "../services/api";
 
 interface SidebarProps {
   isOpen: boolean;
@@ -29,9 +33,31 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const { activeView, setView, profile, logout } = useLmsStore();
+  const [pendingRegistrationsCount, setPendingRegistrationsCount] = React.useState(0);
+
+  React.useEffect(() => {
+    const updateCount = async () => {
+      const localCount = getPendingRegistrationRequestsCount();
+      setPendingRegistrationsCount(localCount);
+
+      try {
+        const data = await authAPI.getRegistrationRequests();
+        if (typeof data?.pendingCount === "number") {
+          setPendingRegistrationsCount(data.pendingCount);
+        }
+      } catch {
+        // fallback to local count
+      }
+    };
+
+    updateCount();
+    const interval = setInterval(updateCount, 4000);
+    return () => clearInterval(interval);
+  }, []);
 
   const studentLinks = [
     { id: "student-dash", label: "Student Portal", icon: LayoutDashboard },
+    { id: "edge-ai-lab", label: "Edge AI Framework", icon: Cpu },
     { id: "notes-resources", label: "Deep lectures and notes", icon: Notebook },
     { id: "assignment-view", label: "Homework Space", icon: FileText },
     { id: "webrtc-live", label: "Live Class (WebRTC)", icon: Tv },
@@ -40,6 +66,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 
   const teacherLinks = [
     { id: "teacher-dash", label: "Teacher Dashboard", icon: LayoutDashboard },
+    { id: "edge-ai-lab", label: "Edge AI Framework", icon: Cpu },
     { id: "admin-upload", label: "Contents and assignments", icon: Upload },
     { id: "submissions", label: "Submissions", icon: FileText },
     { id: "webrtc-live", label: "Start live session", icon: Tv },
@@ -47,6 +74,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 
   const adminLinks = [
     { id: "admin-analytics", label: "Platform Analytics", icon: BarChart3 },
+    {
+      id: "admin-approvals",
+      label: "Registration Requests",
+      icon: UserCheck,
+      badge: pendingRegistrationsCount,
+    },
+    { id: "edge-ai-lab", label: "Edge AI Framework", icon: Cpu },
     { id: "drm-security", label: "DRM Video Shield", icon: Lock },
     { id: "parent-portal", label: "Parent Dashboard", icon: ShieldAlert },
   ];
@@ -127,7 +161,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                     <IconComponent
                       className={`w-5 h-5 ${isActive ? "text-brand-royal" : ""}`}
                     />
-                    <span className="text-left">{link.label}</span>
+                    <span className="text-left flex-1">{link.label}</span>
+                    {(link as any).badge !== undefined && (link as any).badge > 0 && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-white shadow-sm animate-pulse">
+                        {(link as any).badge}
+                      </span>
+                    )}
                   </button>
                 );
               })}

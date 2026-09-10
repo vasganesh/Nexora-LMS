@@ -1,0 +1,104 @@
+{
+  "selected_model": "Logistic Regression",
+  "state_labels": [
+    "PROGRESSING",
+    "MASTERING",
+    "STRUGGLING",
+    "RECOVERING",
+    "FORGETTING"
+  ],
+  "feature_names": [
+    "correctness",
+    "score",
+    "error_streak",
+    "time_spent_sec",
+    "recent_accuracy",
+    "historical_accuracy",
+    "hint_used",
+    "attempt_count",
+    "response_delay_sec",
+    "time_to_first_action_sec",
+    "option_switch_count",
+    "click_count",
+    "hover_duration_sec",
+    "mouse_distance_normalized",
+    "average_mouse_speed",
+    "mouse_pause_count",
+    "hesitation_index"
+  ],
+  "models_evaluated": {
+    "Logistic Regression": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0,
+      "inference_latency_ms": 0.0258,
+      "model_size_kb": 1.58,
+      "training_time_sec": 0.023,
+      "edge_score": 0.9994
+    },
+    "Random Forest": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0,
+      "inference_latency_ms": 0.7632,
+      "model_size_kb": 187.75,
+      "training_time_sec": 0.102,
+      "edge_score": 0.9753
+    },
+    "Small MLP": {
+      "accuracy": 0.985,
+      "precision": 0.9853,
+      "recall": 0.985,
+      "f1_score": 0.985,
+      "inference_latency_ms": 0.0624,
+      "model_size_kb": 34.01,
+      "training_time_sec": 0.086,
+      "edge_score": 0.9821
+    }
+  },
+  "selected_metrics": {
+    "accuracy": 1.0,
+    "f1_score": 1.0,
+    "latency_ms": 0.0258,
+    "model_size_kb": 1.58,
+    "confusion_matrix": [
+      [
+        120,
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        120,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        120,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        120,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        0,
+        120
+      ]
+    ]
+  }
+}

@@ -23,7 +23,10 @@ import {
   File,
   Folder,
   Video,
+  UserCheck,
 } from "lucide-react";
+import { AdminApprovalsView } from "./AdminApprovalsView";
+import { getPendingRegistrationRequestsCount } from "../utils/localStorage";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 const getSubjectSolidColor = (color: string) => {
@@ -72,6 +75,24 @@ interface AssignmentRecord {
 // ─── component ───────────────────────────────────────────────────────────────
 export const AdminPortal: React.FC = () => {
   const { boards, addBoard, addClass, addSubject, activeView, setView, profile } = useLmsStore();
+  const [pendingApprovalsCount, setPendingApprovalsCount] = useState(0);
+
+  useEffect(() => {
+    const updatePending = async () => {
+      setPendingApprovalsCount(getPendingRegistrationRequestsCount());
+      try {
+        const data = await authAPI.getRegistrationRequests();
+        if (typeof data?.pendingCount === "number") {
+          setPendingApprovalsCount(data.pendingCount);
+        }
+      } catch {
+        // ignore
+      }
+    };
+    updatePending();
+    const interval = setInterval(updatePending, 4000);
+    return () => clearInterval(interval);
+  }, []);
 
   // ── User Management State ──
   const [usersList, setUsersList] = useState<any[]>([]);
@@ -437,13 +458,19 @@ export const AdminPortal: React.FC = () => {
     const allViews = [
       { key: "admin-upload", label: "Contents and assignments", icon: Upload },
       { key: "admin-analytics", label: "Platform Analytics", icon: BarChart3 },
+      {
+        key: "admin-approvals",
+        label: "Registration Approvals",
+        icon: UserCheck,
+        badge: pendingApprovalsCount,
+      },
       { key: "admin-users", label: "User Management", icon: Users },
     ] as const;
     if (profile?.role === "teacher") {
       return allViews.filter((v) => v.key === "admin-upload");
     }
     return allViews.filter((v) => v.key !== "admin-upload");
-  }, [profile?.role]);
+  }, [profile?.role, pendingApprovalsCount]);
 
   if (!activeBoard || !activeClass) {
     return (
@@ -457,18 +484,23 @@ export const AdminPortal: React.FC = () => {
     <div className="space-y-6 font-sans text-left">
       {/* Tab Bar */}
       <div className="flex border-b border-slate-200 dark:border-white/5 gap-4 overflow-x-auto">
-        {views.map(({ key, label, icon: Icon }) => (
+        {views.map(({ key, label, icon: Icon, ...rest }) => (
           <button
             key={key}
             onClick={() => setView(key as any)}
             className={`pb-3 text-xs font-semibold flex items-center gap-1.5 border-b-2 whitespace-nowrap transition-all ${
               activeView === key
-                ? "border-brand-royal text-brand-royal dark:text-white"
+                ? "border-brand-royal text-brand-royal dark:text-white font-bold"
                 : "border-transparent text-slate-500 dark:text-slate-500 hover:text-slate-900 dark:hover:text-slate-300"
             }`}
           >
             <Icon className="w-4 h-4" />
             <span>{label}</span>
+            {(rest as any).badge !== undefined && (rest as any).badge > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-amber-500 text-white ml-0.5 animate-pulse">
+                {(rest as any).badge}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -984,6 +1016,9 @@ export const AdminPortal: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* ── REGISTRATION APPROVALS ─────────────────────────────────────────── */}
+      {activeView === "admin-approvals" && <AdminApprovalsView />}
 
       {/* ── USER MANAGEMENT ────────────────────────────────────────────────── */}
       {activeView === "admin-users" && (

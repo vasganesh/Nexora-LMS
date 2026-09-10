@@ -11,7 +11,20 @@ import {
   Clock,
   ChevronRight,
   BookOpen,
+  Cpu,
+  Shield,
+  Zap,
+  Activity,
+  RotateCcw,
+  Layers,
+  CheckCircle2,
 } from "lucide-react";
+import { edgeAI, type ConceptMastery, type EdgeTelemetrySummary } from "../services/edge";
+import { LearnerStateCard } from "./LearnerStateCard";
+import { ConceptMasteryCard } from "./ConceptMasteryCard";
+import { StateTransitionTimeline } from "./StateTransitionTimeline";
+import { InterventionHistory } from "./InterventionHistory";
+import { learnerIntelligenceAPI, type LearnerIntelligenceData } from "../services/learnerIntelligenceService";
 
 export const StudentDashboard: React.FC = () => {
   const { setView, profile, boards, assignments, setActiveCourseContext, joinLiveRoom } =
@@ -95,6 +108,32 @@ export const StudentDashboard: React.FC = () => {
 
   const maxHours = Math.max(...mockStudyHours.map((d) => d.hours));
 
+  const [telemetry, setTelemetry] = useState<EdgeTelemetrySummary>(edgeAI.getTelemetrySummary());
+  const [concepts, setConcepts] = useState<ConceptMastery[]>(edgeAI.feedbackCollector.getAllConceptMastery());
+  const [learnerIntelligence, setLearnerIntelligence] = useState<LearnerIntelligenceData | null>(null);
+  const [interventionHistory, setInterventionHistory] = useState<any[]>([]);
+
+  useEffect(() => {
+    const unsub = edgeAI.subscribe((sum) => {
+      setTelemetry(sum);
+      setConcepts(edgeAI.feedbackCollector.getAllConceptMastery());
+    });
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    if (!profile.id) return;
+    learnerIntelligenceAPI.getStudentIntelligence(profile.id)
+      .then(data => setLearnerIntelligence(data))
+      .catch(err => console.warn("Failed fetching student intelligence:", err));
+
+    learnerIntelligenceAPI.getStudentInterventionHistory(profile.id)
+      .then(hist => setInterventionHistory(hist))
+      .catch(err => console.warn("Failed fetching student interventions:", err));
+  }, [profile.id]);
+
+  const spacedConcepts = edgeAI.feedbackCollector.getConceptsNeedingSpacedReview();
+
   return (
     <div className="space-y-6 font-sans">
       {/* Welcome & Streak Banner */}
@@ -114,7 +153,158 @@ export const StudentDashboard: React.FC = () => {
             • {activeClass?.title || "Class 12"}
           </p>
         </div>
+
+        {/* Edge AI Status Banner Chip */}
+        <div className="flex items-center gap-3">
+          <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center gap-3 text-left">
+            <div className="p-2 rounded-xl bg-brand-royal/10 text-brand-royal dark:text-brand-royal-light">
+              <Cpu className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] uppercase font-bold text-slate-400">Edge AI State</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              </div>
+              <div className="text-xs font-bold text-slate-900 dark:text-white">
+                {telemetry.activeLearnerState} ({(telemetry.confidenceScore * 100).toFixed(0)}% Conf)
+              </div>
+            </div>
+          </div>
+
+          <button
+            onClick={() => setView("edge-ai-lab")}
+            className="px-3.5 py-3 rounded-2xl bg-brand-royal/10 hover:bg-brand-royal/20 text-brand-royal dark:text-brand-royal-light font-bold text-xs border border-brand-royal/20 transition-all flex items-center gap-1.5"
+          >
+            <Activity className="w-4 h-4" />
+            <span>AI Lab</span>
+          </button>
+        </div>
       </div>
+
+      {/* Spaced Retrieval & Retention Decay Alert Banner if any concept needs review */}
+      {spacedConcepts.length > 0 && (
+        <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-900 dark:text-rose-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-left animate-in fade-in">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-rose-500/20 text-rose-600 dark:text-rose-400">
+              <RotateCcw className="w-5 h-5 animate-spin" style={{ animationDuration: "12s" }} />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold">Spaced Retrieval Retention Alert</h4>
+              <p className="text-[11px] text-rose-700 dark:text-rose-300">
+                Memory decay curve indicates {spacedConcepts.length} previously mastered concept(s) need a 2-minute refresher.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setView("edge-ai-lab")}
+            className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs transition-colors shrink-0 shadow-sm"
+          >
+            Review Concepts
+          </button>
+        </div>
+      )}
+
+      {/* Concept-Level Mastery Knowledge Tracing Matrix */}
+      <div className="glass-card p-5 border-slate-200 dark:border-white/5 space-y-3 text-left">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Layers className="w-4 h-4 text-brand-royal" />
+            <h3 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+              Concept-Level Mastery & Retention Tracing (Edge AI)
+            </h3>
+          </div>
+          <span className="text-[10px] text-slate-400">Local Knowledge Tracing</span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {concepts.slice(0, 4).map((c) => (
+            <div
+              key={c.conceptId}
+              className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800 space-y-2"
+            >
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-slate-900 dark:text-white truncate max-w-[120px]">
+                  {c.conceptName}
+                </span>
+                <span className="text-[10px] font-mono font-bold text-brand-royal">
+                  {c.masteryScore}%
+                </span>
+              </div>
+
+              {/* Progress Bar */}
+              <div className="w-full h-1.5 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full ${
+                    c.masteryScore >= 80
+                      ? "bg-emerald-500"
+                      : c.masteryScore >= 60
+                      ? "bg-blue-500"
+                      : "bg-amber-500"
+                  }`}
+                  style={{ width: `${c.masteryScore}%` }}
+                />
+              </div>
+
+              <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400">
+                <span>State: {c.state}</span>
+                <span>Retention: {c.retentionScore}%</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Edge AI Personalized Learning Intelligence Section */}
+      {learnerIntelligence && (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-base font-extrabold text-white tracking-tight flex items-center gap-2">
+                <Brain className="w-5 h-5 text-indigo-400" />
+                Edge AI Learning Intelligence & Diagnostic States
+              </h3>
+              <p className="text-xs text-slate-400">
+                Continuous on-device telemetry evaluating 5 cognitive states across fine-grained academic concepts
+              </p>
+            </div>
+          </div>
+
+          {/* Active Learner State Cards */}
+          {learnerIntelligence.states && learnerIntelligence.states.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {learnerIntelligence.states.slice(0, 6).map((st) => (
+                <LearnerStateCard
+                  key={st.id}
+                  state={st.currentState}
+                  confidence={st.confidence}
+                  topicName={st.topic?.name || "Academic Concept"}
+                  hierarchyPath={st.topic?.chapter?.unit?.subject?.name}
+                  reasons={st.reasons || []}
+                  hesitationIndex={(st as any).featureSnapshot?.hesitationIndex}
+                  lastUpdated={st.updatedAt}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="bg-slate-900/40 rounded-2xl p-6 border border-slate-800 text-center">
+              <p className="text-xs text-slate-400">
+                Take topic quizzes to generate continuous cognitive feature vectors and activate diagnostic state predictions.
+              </p>
+            </div>
+          )}
+
+          {/* Concept Mastery & Learning Journey Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <ConceptMasteryCard masteries={learnerIntelligence.masteries || []} />
+            <StateTransitionTimeline transitions={learnerIntelligence.transitions || []} />
+          </div>
+
+          {/* Intervention History */}
+          {interventionHistory.length > 0 && (
+            <InterventionHistory history={interventionHistory} />
+          )}
+        </div>
+      )}
 
       {/* Grid: 2 Columns */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

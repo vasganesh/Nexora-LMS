@@ -14,8 +14,17 @@ import {
   RefreshCw,
   BookOpen,
   Sparkles,
+  Cpu,
+  Zap,
+  Shield,
+  RotateCcw,
+  Activity,
+  Layers,
 } from "lucide-react";
 import { generateQuizForChapter } from "../utils/quizGenerator";
+import { edgeAI, type ScaffoldedPackage, type StatePrediction } from "../services/edge";
+import { learnerIntelligenceAPI, type InterventionPayload } from "../services/learnerIntelligenceService";
+import { AdaptiveRecommendation } from "./AdaptiveRecommendation";
 
 export const QuizInterface: React.FC = () => {
   const {
@@ -77,6 +86,91 @@ export const QuizInterface: React.FC = () => {
 
   const timerRef = useRef<number | null>(null);
 
+  const [questionStartTime, setQuestionStartTime] = useState<number>(Date.now());
+  const [switchCounts, setSwitchCounts] = useState<Record<string, number>>({});
+  const [adaptivePackage, setAdaptivePackage] = useState<ScaffoldedPackage | null>(null);
+  const [showScaffoldDrawer, setShowScaffoldDrawer] = useState<boolean>(false);
+  const [lastPrediction, setLastPrediction] = useState<StatePrediction | null>(edgeAI.getActivePrediction());
+  const [backendIntervention, setBackendIntervention] = useState<InterventionPayload | null>(null);
+
+  // Real-Time Interaction & Continuous Mouse Telemetry Reference (Privacy-Safe Aggregates)
+  const mouseTelemetryRef = useRef<{
+    lastX: number;
+    lastY: number;
+    distancePx: number;
+    lastMoveTime: number;
+    pauses: number;
+    hoverStart: number | null;
+    hoverDurationMs: number;
+    clicks: number;
+    firstActionTime: number | null;
+  }>({
+    lastX: 0,
+    lastY: 0,
+    distancePx: 0,
+    lastMoveTime: Date.now(),
+    pauses: 0,
+    hoverStart: null,
+    hoverDurationMs: 0,
+    clicks: 0,
+    firstActionTime: null,
+  });
+
+  const handleContainerMouseMove = (e: React.MouseEvent) => {
+    const now = Date.now();
+    const tel = mouseTelemetryRef.current;
+    if (tel.firstActionTime === null) {
+      tel.firstActionTime = now;
+    }
+    if (tel.lastX !== 0 || tel.lastY !== 0) {
+      const dx = e.clientX - tel.lastX;
+      const dy = e.clientY - tel.lastY;
+      tel.distancePx += Math.sqrt(dx * dx + dy * dy);
+    }
+    if (now - tel.lastMoveTime > 800) {
+      tel.pauses += 1;
+    }
+    tel.lastX = e.clientX;
+    tel.lastY = e.clientY;
+    tel.lastMoveTime = now;
+  };
+
+  const handleContainerClick = () => {
+    const tel = mouseTelemetryRef.current;
+    tel.clicks += 1;
+    if (tel.firstActionTime === null) {
+      tel.firstActionTime = Date.now();
+    }
+  };
+
+  const handleOptionMouseEnter = () => {
+    mouseTelemetryRef.current.hoverStart = Date.now();
+  };
+
+  const handleOptionMouseLeave = () => {
+    const tel = mouseTelemetryRef.current;
+    if (tel.hoverStart) {
+      tel.hoverDurationMs += Date.now() - tel.hoverStart;
+      tel.hoverStart = null;
+    }
+  };
+
+  // Reset timer & telemetry on question switch
+  useEffect(() => {
+    setQuestionStartTime(Date.now());
+    mouseTelemetryRef.current = {
+      lastX: 0,
+      lastY: 0,
+      distancePx: 0,
+      lastMoveTime: Date.now(),
+      pauses: 0,
+      hoverStart: null,
+      hoverDurationMs: 0,
+      clicks: 0,
+      firstActionTime: null,
+    };
+  }, [currentQuestionIndex]);
+
   // Sync state when activeQuizId or activeQuiz changes
   useEffect(() => {
     if (activeQuiz) {
@@ -86,6 +180,22 @@ export const QuizInterface: React.FC = () => {
       setIsSubmitted(false);
       setResult(null);
       setCountdown(3);
+      setQuestionStartTime(Date.now());
+      setSwitchCounts({});
+      setAdaptivePackage(null);
+      setShowScaffoldDrawer(false);
+      setBackendIntervention(null);
+      mouseTelemetryRef.current = {
+        lastX: 0,
+        lastY: 0,
+        distancePx: 0,
+        lastMoveTime: Date.now(),
+        pauses: 0,
+        hoverStart: null,
+        hoverDurationMs: 0,
+        clicks: 0,
+        firstActionTime: null,
+      };
     }
   }, [activeQuizId, activeQuiz?.id]);
 
@@ -130,11 +240,93 @@ export const QuizInterface: React.FC = () => {
   };
 
   const handleOptionSelect = (questionId: string, optionIndex: number) => {
-    if (isSubmitted) return;
+    if (isSubmitted || !activeQuiz) return;
+
+    const currentSwitches = (switchCounts[questionId] || 0) + (selectedAnswers[questionId] !== undefined ? 1 : 0);
+    setSwitchCounts((prev) => ({
+      ...prev,
+      [questionId]: currentSwitches,
+    }));
+
     setSelectedAnswers({
       ...selectedAnswers,
       [questionId]: optionIndex,
     });
+
+    const currentQ = activeQuiz.questions[currentQuestionIndex];
+    if (currentQ) {
+      const isCorrect = optionIndex === currentQ.correctAnswerIndex;
+      const now = Date.now();
+      const responseTimeMs = Math.max(500, now - questionStartTime);
+      const tel = mouseTelemetryRef.current;
+      const totalSec = responseTimeMs / 1000;
+      const avgSpeed = tel.distancePx > 0 ? (tel.distancePx / totalSec) : 0;
+
+      const conceptName = activeQuiz.title || "Subject Concept";
+      const conceptId = activeQuiz.chapterId || activeQuiz.id || "concept-general";
+
+      // 1. Process client-side edge signal
+      const hesitationScore = Math.min(1.0, responseTimeMs / 25000 + currentSwitches * 0.15);
+      const processRes = edgeAI.processLearnerSignal(
+        {
+          studentId: profile.id || "student",
+          topicId: currentQ.id,
+          conceptId,
+          actionType: "quiz_answer",
+          responseTimeMs,
+          hesitationScore,
+          isCorrect,
+          switchCount: currentSwitches,
+          selectedOptionIndex: optionIndex,
+        },
+        conceptName,
+        activeQuiz.subjectId,
+        profile.name
+      );
+
+      setLastPrediction(processRes.prediction);
+
+      if (processRes.decision.interventionLevel > 0 && !isCorrect) {
+        setAdaptivePackage(processRes.scaffoldedPackage);
+        setShowScaffoldDrawer(true);
+      }
+
+      // 2. Dispatch to Backend Edge AI continuous loop (Observe -> Infer -> Transition -> Adaptive Engine)
+      learnerIntelligenceAPI.inferLearnerState({
+        studentId: profile.id,
+        topicId: activeQuiz.chapterId || activeQuiz.id,
+        topicName: conceptName,
+        questionId: currentQ.id,
+        academic: {
+          isCorrect,
+          score: isCorrect ? 1.0 : 0.0,
+          attempts: 1,
+          errorStreak: isCorrect ? 0 : 1,
+          timeSpentLearningSec: Math.round(totalSec),
+        },
+        interaction: {
+          questionStartTime,
+          answerSubmissionTime: now,
+          firstInteractionTime: tel.firstActionTime || questionStartTime,
+          answerChanges: currentSwitches,
+          optionSwitches: currentSwitches,
+          backtrackCount: Math.max(0, currentSwitches - 1),
+          clickCount: Math.max(1, tel.clicks),
+          hoverDurationMs: tel.hoverDurationMs,
+          mouseDistancePx: Math.round(tel.distancePx),
+          averageMouseSpeed: Math.round(avgSpeed),
+          mousePauses: tel.pauses,
+          totalTimeSpentMs: responseTimeMs,
+        }
+      }).then(res => {
+        if (res?.data?.intervention && res.data.intervention.level > 0 && !isCorrect) {
+          setBackendIntervention(res.data.intervention);
+        }
+      }).catch(err => {
+        // Failure Safety: AI errors never disrupt normal quiz completion
+        console.warn("Learner intelligence telemetry background sync:", err);
+      });
+    }
   };
 
   const handleAutoSubmit = () => {
@@ -521,8 +713,12 @@ export const QuizInterface: React.FC = () => {
             </div>
           </div>
 
-          {/* Question Sheet */}
-          <div className="glass-card p-6 border-slate-200 dark:border-white/5 text-left space-y-6">
+          {/* Question Sheet with Continuous Mouse Telemetry */}
+          <div
+            onMouseMove={handleContainerMouseMove}
+            onClick={handleContainerClick}
+            className="glass-card p-6 border-slate-200 dark:border-white/5 text-left space-y-6"
+          >
             <div className="flex gap-3 items-start">
               <span className="text-sm font-bold text-brand-violet uppercase tracking-wider mt-0.5">
                 Q{currentQuestionIndex + 1}.
@@ -532,7 +728,7 @@ export const QuizInterface: React.FC = () => {
               </h4>
             </div>
 
-            {/* Options List */}
+            {/* Options List with Hover & Interaction Telemetry */}
             <div className="space-y-3 pl-0 sm:pl-7">
               {currentQuestion.options.map((opt, idx) => {
                 const isChosen = selectedAnswers[currentQuestion.id] === idx;
@@ -540,6 +736,8 @@ export const QuizInterface: React.FC = () => {
                 return (
                   <button
                     key={idx}
+                    onMouseEnter={handleOptionMouseEnter}
+                    onMouseLeave={handleOptionMouseLeave}
                     onClick={() => handleOptionSelect(currentQuestion.id, idx)}
                     className={`w-full p-4 rounded-xl border text-left text-xs sm:text-sm transition-all flex items-center gap-3 ${
                       isChosen
@@ -561,6 +759,69 @@ export const QuizInterface: React.FC = () => {
                 );
               })}
             </div>
+
+            {/* Edge AI Real-Time Adaptive Scaffolding Drawer */}
+            {showScaffoldDrawer && adaptivePackage && (
+              <div className="mt-4 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-left space-y-2.5 animate-in fade-in">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-amber-500" />
+                    <span className="text-xs font-bold text-amber-900 dark:text-amber-200">
+                      Edge AI Adaptive Assistant: {adaptivePackage.title}
+                    </span>
+                  </div>
+                  <span className="text-[9px] font-mono font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300">
+                    Level {adaptivePackage.level} ({adaptivePackage.type})
+                  </span>
+                </div>
+
+                <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed bg-white/60 dark:bg-slate-950/60 p-3 rounded-xl border border-amber-500/20 whitespace-pre-line">
+                  {adaptivePackage.content}
+                </p>
+
+                <div className="flex justify-end gap-2 pt-1">
+                  <button
+                    onClick={() => {
+                      edgeAI.recordInterventionFeedback(
+                        adaptivePackage.decisionId,
+                        "ACCEPTED",
+                        0.8,
+                        adaptivePackage.conceptId
+                      );
+                      setShowScaffoldDrawer(false);
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-brand-royal hover:bg-brand-royal/90 text-white text-xs font-bold transition-colors shadow-sm"
+                  >
+                    {adaptivePackage.actionPrompt || "Apply Hint"}
+                  </button>
+                  <button
+                    onClick={() => {
+                      edgeAI.recordInterventionFeedback(
+                        adaptivePackage.decisionId,
+                        "DISMISSED",
+                        0.5,
+                        adaptivePackage.conceptId
+                      );
+                      setShowScaffoldDrawer(false);
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-xs font-semibold hover:bg-slate-300 transition-colors"
+                  >
+                    Hide
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Edge AI Minimum Intervention Adaptive Scaffold */}
+            {backendIntervention && backendIntervention.level > 0 && (
+              <div className="mt-4 animate-in fade-in">
+                <AdaptiveRecommendation
+                  intervention={backendIntervention}
+                  conceptName={activeQuiz.title || "Academic Concept"}
+                  onDismiss={() => setBackendIntervention(null)}
+                />
+              </div>
+            )}
           </div>
 
           {/* Nav buttons */}

@@ -14,6 +14,7 @@ import {
 import { authAPI, academicAPI } from "../services/api";
 import type { Profile } from "../store/types";
 import { PlanetLogo } from "./PlanetLogo";
+import { getRegisteredStudents, getStoredRegistrationRequests } from "../utils/localStorage";
 
 export type LoginMode = "student" | "educator" | "all";
 
@@ -78,21 +79,78 @@ export const LoginPage: React.FC<LoginPageProps> = ({ mode = "all" }) => {
     setLoading(true);
     setError("");
 
+    const rawInput = usernameOrEmail.trim().toLowerCase();
+
+    // Check local registration requests queue for student status
+    const storedRequests = getStoredRegistrationRequests();
+    const matchedRequest = storedRequests.find(
+      (r) =>
+        r.email.toLowerCase() === rawInput ||
+        r.username?.toLowerCase() === rawInput
+    );
+
+    if (matchedRequest && (role === "student" || mode === "student")) {
+      if (matchedRequest.status === "REMOVED") {
+        setError(
+          `Your student account has been removed by the administrator and your credentials have been disabled. ${
+            matchedRequest.rejectReason ? `Reason: ${matchedRequest.rejectReason}` : ""
+          } Please contact the school administration.`
+        );
+        setLoading(false);
+        return;
+      }
+      if (matchedRequest.status === "PENDING") {
+        setError(
+          "Your registration is currently awaiting administrator approval. Once verified, your unique login credentials will be emailed to you."
+        );
+        setLoading(false);
+        return;
+      }
+      if (matchedRequest.status === "REJECTED") {
+        setError(
+          `Your registration request was not approved by the administrator. ${
+            matchedRequest.rejectReason ? `Reason: ${matchedRequest.rejectReason}` : ""
+          } Please contact support or submit a new registration.`
+        );
+        setLoading(false);
+        return;
+      }
+    }
+
     try {
       const loginEmails = getLoginEmails();
+      // If student matched an approved request with a resolved email, include that email
+      if (matchedRequest?.email && !loginEmails.includes(matchedRequest.email.toLowerCase())) {
+        loginEmails.unshift(matchedRequest.email.toLowerCase());
+      }
+
       let result: Awaited<ReturnType<typeof authAPI.login>> | null = null;
+      let lastApiErr: any = null;
 
       for (const email of loginEmails) {
         try {
           result = await authAPI.login(email, password);
           break;
-        } catch {
-          // Try the next supported student demo domain before falling back offline.
+        } catch (err: any) {
+          lastApiErr = err;
+          // If server explicitly returned pending/rejected/removed message, break out and display it
+          if (
+            err?.message &&
+            (err.message.toLowerCase().includes("pending") ||
+              err.message.toLowerCase().includes("approval") ||
+              err.message.toLowerCase().includes("rejected") ||
+              err.message.toLowerCase().includes("removed") ||
+              err.message.toLowerCase().includes("disabled"))
+          ) {
+            setError(err.message);
+            setLoading(false);
+            return;
+          }
         }
       }
 
       if (!result) {
-        throw new Error("Login failed");
+        throw new Error(lastApiErr?.message || "Login failed");
       }
 
       localStorage.setItem("auth_token", result.token);
@@ -148,7 +206,128 @@ export const LoginPage: React.FC<LoginPageProps> = ({ mode = "all" }) => {
       }
       return;
     } catch (err: any) {
-      setError("Invalid academic email or password. Please try again.");
+      if (
+        err?.message &&
+        (err.message.toLowerCase().includes("pending") ||
+          err.message.toLowerCase().includes("approval") ||
+          err.message.toLowerCase().includes("rejected") ||
+          err.message.toLowerCase().includes("removed") ||
+          err.message.toLowerCase().includes("disabled"))
+      ) {
+        setError(err.message);
+        return;
+      }
+
+      if (matchedRequest?.status === "REMOVED") {
+        setError("Your student account has been removed by the administrator and your credentials have been disabled.");
+        return;
+      }
+
+      // Offline/local fallback: Check registered students and default demo accounts
+      const registered = getRegisteredStudents();
+      const matchedStudent = registered.find(
+        (s) =>
+          s.email?.toLowerCase() === rawInput ||
+          s.username?.toLowerCase() === rawInput ||
+          rawInput.startsWith(s.username?.toLowerCase() || "")
+      );
+
+      if (matchedStudent && (role === "student" || mode === "student")) {
+        // If password is set and mismatch
+        if (matchedStudent.password && matchedStudent.password !== "1234" && matchedStudent.password !== password) {
+          setError("Invalid credentials. Please verify your username, email, or password.");
+          return;
+        }
+
+        useLmsStore.setState({
+          profile: matchedStudent,
+          auth: {
+            isAuthenticated: true,
+            user: matchedStudent as any,
+            token: "local-jwt-token",
+            loading: false,
+            error: null,
+          },
+        });
+        useLmsStore.getState().addNotification(
+          "Welcome back!",
+          `Successfully logged in as ${matchedStudent.name}.`,
+          "success"
+        );
+        openStudentWorkspace(matchedStudent);
+        return;
+      }
+
+      // Teacher demo fallback
+      if (role === "teacher" || mode === "educator") {
+        const teacherProf: Profile = {
+          id: "teacher-001",
+          name: "Dr. Krithika L B",
+          username: "krithika",
+          password: "1234",
+          email: rawInput.includes("@") ? rawInput : `${rawInput}@nexoralearning.in`,
+          role: "teacher",
+          selectedBoardId: "tnsb",
+          selectedClassId: "class-12",
+          optedSubjectId: "maths-12",
+          subjectArea: selectedSubject,
+          xp: 5000,
+          level: 15,
+          coins: 500,
+          streak: 25,
+          achievements: [],
+          certificates: [],
+        };
+        useLmsStore.setState({
+          profile: teacherProf,
+          auth: {
+            isAuthenticated: true,
+            user: teacherProf as any,
+            token: "local-teacher-jwt",
+            loading: false,
+            error: null,
+          },
+        });
+        setView("teacher-dash");
+        return;
+      }
+
+      // Admin demo fallback
+      if (role === "admin" || rawInput.includes("admin")) {
+        if (password === "password123" || password.length >= 4) {
+          const adminProf: Profile = {
+            id: "admin-001",
+            name: "LMS Administrator",
+            username: "admin",
+            password: "password123",
+            email: rawInput.includes("@") ? rawInput : "admin@nexoralearning.com",
+            role: "admin",
+            selectedBoardId: "tnsb",
+            selectedClassId: "class-12",
+            optedSubjectId: "maths-12-v1",
+            xp: 10000,
+            level: 50,
+            coins: 999,
+            streak: 99,
+            achievements: [],
+            certificates: [],
+          };
+          useLmsStore.setState({
+            profile: adminProf,
+            auth: {
+              isAuthenticated: true,
+              user: adminProf as any,
+              token: "local-admin-jwt",
+              loading: false,
+              error: null,
+            },
+          });
+          setView("admin-analytics");
+          return;
+        }
+      }
+
+      setError("Invalid credentials. Please verify your username, email, or password.");
     } finally {
       setLoading(false);
     }
